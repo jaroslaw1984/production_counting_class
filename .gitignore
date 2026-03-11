@@ -1,0 +1,9 @@
+# Pliki binarne i cache Pythona
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Środowisko wirtualne (jeśli masz je w tym folderze)
+venv/
+.venv/
+env/
