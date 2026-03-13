@@ -1,4 +1,3 @@
-from turtle import left, right
 import customtkinter as ctk
 from project.core.app_state import AppState
 
@@ -7,7 +6,7 @@ class MainWindow:
         self.state = state
         
         # Konfiguracja wyglądu
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("dark-blue")
                 
         # Root window
@@ -16,7 +15,7 @@ class MainWindow:
         self.root.geometry("800x600")
         
         # Ustawienia czcionki
-        self.default_font = ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
+        self.default_font = ctk.CTkFont(family="Segoe UI", size=14)
        
         # Budowa UI
         self._configure_layout()
@@ -25,37 +24,67 @@ class MainWindow:
     
     # Budowa lewej części (panel boczny)    
     def _build_left_panel(self):
+        # --- główny kontener ---
         self.left = ctk.CTkFrame(self.root)
-        self.left.grid(row=0, column=0, sticky="ns", padx=10, pady=10)
+        self.left.grid(row=0, column=0, sticky="ns", padx=5, pady=5)
         self.left.grid_columnconfigure(0, weight=1) # tylko góra-dół
-        self.left.grid_rowconfigure(98, weight=1)  # push przyciski do góry
+        self.left.grid_rowconfigure(1, weight=1)  # push przyciski do góry
+        
+        # --- górne przyciski ---
+        self.top_frame = ctk.CTkFrame(self.left, fg_color="transparent")
+        self.top_frame.grid(row=0, column=0, sticky="ns", pady=(10, 10))
+        self.top_frame.grid_columnconfigure(0, weight=1)        
     
+        # --- dolne przyciski ---
+        self.down_frame = ctk.CTkFrame(self.left, fg_color="transparent")
+        self.down_frame.grid(row=2, column=0, sticky="ns", pady=(10, 10))
+        self.down_frame.grid_columnconfigure(0, weight=1)
+               
         # --- definicja przycisków (tekst, handler) ---
         buttons = [
             ("Wczytaj maszyny", self.loading_machine_data),
             ("Wczytaj plik", self.on_open_file),
             ("Przelicz produkcję", self.calculate_production),
             ("Generuj raport", self.generate_logistics_report),
+            ("Potwierdż termin", self.confirm_order),
             ("Wyczyść", self.clean_text),
-            ("Jasny motyw" , self.change),
-            
         ]
     
         # --- tworzenie przycisków w pętli ---
         for row, (label, handler) in enumerate(buttons):
             btn = ctk.CTkButton(
-                self.left,
+                self.top_frame,
                 text=label,
-                command=handler
+                command=handler,
+                font=self.default_font
             )
             btn.grid(row=row, column=0, sticky="ew", padx=10, pady=10)
             
+        # --- Ręczna definicja przycisku motywu w dolnym panelu ---
         self.theme_button = ctk.CTkButton(
-            self.left,
-            text=self._get_theme_button_text(),
-            command=self.change_theme
+            self.down_frame,
+            text=self._get_theme_button_text(), # Od razu pobiera właściwy tekst
+            command=self.change_theme,
+            font=self.default_font
         )
-    
+        self.theme_button.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+             
+        # --- definicja przycisków (tekst, handler) ---     
+        info_buttons = [
+            ("Pomoc", self.help_btn),
+            ("O programie", self.about_btn)  
+        ]
+        
+        # --- tworzenie przycisków dolnych w pętli --- 
+        for row, (label, handler) in enumerate(info_buttons, start=1):
+            btn = ctk.CTkButton(
+                self.down_frame,
+                text=label,
+                command=handler,
+                font=self.default_font
+            )
+            btn.grid(row=row, column=0, sticky="ew", padx=10, pady=10)
+                      
     # Budowa prawej części (główna)    
     def _build_right_panel(self):
         # 3) Prawa część (rośnie w obie strony 
@@ -72,13 +101,13 @@ class MainWindow:
         self.text.configure(state="disabled") 
         
     def _get_theme_button_text(self) -> str:
-        return "Jasny motyw" if ctk.get_appearance_mode() == "dark" else "Ciemny motyw"
+        return "Jasny motyw" if ctk.get_appearance_mode() == "Dark" else "Ciemny motyw"
     
     def change_theme(self):
-        if ctk.get_appearance_mode() == "light":
-            ctk.set_appearance_mode("dark")
+        if ctk.get_appearance_mode() == "Light":
+            ctk.set_appearance_mode("Dark")
         else:
-            ctk.set_appearance_mode("light")
+            ctk.set_appearance_mode("Light")
             
         # aktualizacja tekstu przycisku
         self.theme_button.configure(text=self._get_theme_button_text())
@@ -100,11 +129,17 @@ class MainWindow:
     def generate_logistics_report(self):
         print("Generowanie raportu logistycznego...")
         
+    def confirm_order(self):
+        print("Potwierdzenie raportu...")
+        
     def clean_text(self):
         print("Czyszczenie tekstu...")
         
-    def change(self):
-        print("Zmiana motywu...")
+    def help_btn(self):
+        print("Pomoc")
+        
+    def about_btn(self):
+        print("O programe")
 
     def run(self):
         self.root.mainloop()
