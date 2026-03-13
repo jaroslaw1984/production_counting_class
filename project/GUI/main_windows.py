@@ -5,24 +5,27 @@ class MainWindow:
     def __init__(self, state: AppState):
         self.state = state
         
-        # Konfiguracja wyglądu
+        # --- Konfiguracja wyglądu ---
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("dark-blue")
                 
-        # Root window
+        # --- Root window ---
         self.root = ctk.CTk()
         self.root.title("Policz produkcję")
         self.root.geometry("800x600")
         
-        # Ustawienia czcionki
+        # --- Ustawienia czcionki ---
         self.default_font = ctk.CTkFont(family="Segoe UI", size=14)
        
-        # Budowa UI
+        # --- Budowa UI ---
         self._configure_layout()
         self._build_left_panel()
         self._build_right_panel()
     
-    # Budowa lewej części (panel boczny)    
+    # # # # # # # # # # # # # # # # # # # #
+    # Budowa lewej części (panel boczny)  #
+    # # # # # # # # # # # # # # # # # # # #  
+     
     def _build_left_panel(self):
         # --- główny kontener ---
         self.left = ctk.CTkFrame(self.root)
@@ -40,8 +43,8 @@ class MainWindow:
         self.down_frame.grid(row=2, column=0, sticky="ns", pady=(10, 10))
         self.down_frame.grid_columnconfigure(0, weight=1)
                
-        # --- definicja przycisków (tekst, handler) ---
-        buttons = [
+        # --- definicja dla górnych przycisków (tekst, handler) ---
+        top_buttons = [
             ("Wczytaj maszyny", self.loading_machine_data),
             ("Wczytaj plik", self.on_open_file),
             ("Przelicz produkcję", self.calculate_production),
@@ -51,7 +54,7 @@ class MainWindow:
         ]
     
         # --- tworzenie przycisków w pętli ---
-        for row, (label, handler) in enumerate(buttons):
+        for row, (label, handler) in enumerate(top_buttons):
             btn = ctk.CTkButton(
                 self.top_frame,
                 text=label,
@@ -69,14 +72,14 @@ class MainWindow:
         )
         self.theme_button.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
              
-        # --- definicja przycisków (tekst, handler) ---     
-        info_buttons = [
+        # --- definicja dolnych przycisków (tekst, handler) ---     
+        bottom_buttons = [
             ("Pomoc", self.help_btn),
             ("O programie", self.about_btn)  
         ]
         
         # --- tworzenie przycisków dolnych w pętli --- 
-        for row, (label, handler) in enumerate(info_buttons, start=1):
+        for row, (label, handler) in enumerate(bottom_buttons, start=1):
             btn = ctk.CTkButton(
                 self.down_frame,
                 text=label,
@@ -84,14 +87,17 @@ class MainWindow:
                 font=self.default_font
             )
             btn.grid(row=row, column=0, sticky="ew", padx=10, pady=10)
-                      
-    # Budowa prawej części (główna)    
+    
+    # # # # # # # # # # # # # # # # #
+    # Budowa prawej części (główna) #
+    # # # # # # # # # # # # # # # # #                  
+
     def _build_right_panel(self):
-        # 3) Prawa część (rośnie w obie strony 
+        # --- Prawa część (rośnie w obie strony ---
         self.right = ctk.CTkFrame(self.root)
         self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) # rośnie w obie strony
 
-        # 4) Wnętrze prawego panelu też robimy responsywne
+        # --- Wnętrze prawego panelu też responsywne ---
         self.right.grid_columnconfigure(0, weight=1)
         self.right.grid_rowconfigure(0, weight=0)  # toolbar
         self.right.grid_rowconfigure(1, weight=1)  # treść (textbox / tabela)        
@@ -99,20 +105,22 @@ class MainWindow:
         self.text = ctk.CTkTextbox(self.right)
         self.text.grid(row=1, column=0, sticky="nsew")
         self.text.configure(state="disabled") 
-        
+    
+    # --- pobieranie tekstu dla zmiany motywu    
     def _get_theme_button_text(self) -> str:
         return "Jasny motyw" if ctk.get_appearance_mode() == "Dark" else "Ciemny motyw"
     
+    # --- zmiana motywu Dark / Light ---
     def change_theme(self):
         if ctk.get_appearance_mode() == "Light":
             ctk.set_appearance_mode("Dark")
         else:
             ctk.set_appearance_mode("Light")
             
-        # aktualizacja tekstu przycisku
+        # --- aktualizacja tekstu przycisku ---
         self.theme_button.configure(text=self._get_theme_button_text())
         
-        # Konfiguracja layoutu root window          
+    # --- Konfiguracja layoutu root window ---        
     def _configure_layout(self):    
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
