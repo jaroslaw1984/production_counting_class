@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from project.core.app_state import AppState
+from tkinter import messagebox
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -155,3 +156,21 @@ class MainWindow:
 
     def run(self):
         self.root.mainloop()
+        
+    # # # # # # # # # # # # # # # # # # # # # #
+    # Helpery dla kontrolera controllers.py)  #
+    # # # # # # # # # # # # # # # # # # # # # #
+    
+    # --- obsługa błędów ---
+    def show_error(self, title: str, message: str):
+        messagebox.showerror(title, message)
+        
+    def show_warning(self, title: str, message: str):
+        messagebox.showerror(title, message)
+        
+    # --- Wyświetlanie w popup listę maszyn ---
+    def show_machine_select_popup(self, machines: list[str]):
+        # Na razie to tylko test, czy dane poprawnie dotarły z bazy
+        print(f"Widok: Otrzymałem polecenie narysowania popupu dla {len(machines)} maszyn.")
+        print(f"Lista maszyn z DB: {machines}")
+        # W kolejnym kroku wrzucimy tu lub wywołamy cały kod budujący okienko z checkboxami
