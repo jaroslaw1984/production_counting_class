@@ -21,6 +21,9 @@ class MainWindow:
         self._configure_layout()
         self._build_left_panel()
         self._build_right_panel()
+        
+    def set_controller(self, controller):
+        self.controller = controller    
     
     # # # # # # # # # # # # # # # # # # # #
     # Budowa lewej części (panel boczny)  #
@@ -126,7 +129,8 @@ class MainWindow:
         self.root.grid_rowconfigure(0, weight=1)
         
     def loading_machine_data(self):
-        print("Ładowanie danych maszyn...")
+        if hasattr(self, 'controller'):
+            self.controller.handle_load_machines()
         
     def on_open_file(self):
         print("Otwieranie pliku...")
