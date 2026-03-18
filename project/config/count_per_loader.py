@@ -1,7 +1,8 @@
-from __future__ import annotations
-from typing import cast
 import pandas as pd
 import pyodbc
+from sqlalchemy import create_engine
+import urllib.parse
+from typing import cast
 
 PLAN_SERVER = "kronos.sip.local"
 PLAN_DB = "Raporty"
@@ -15,7 +16,7 @@ def _pick_driver() -> str:
             return name
     raise RuntimeError(f"No SQL Server ODBC driver found. Available: {drivers}")
 
-def _connect_plan() -> pyodbc.Connection:
+def _get_plan_engine():
     driver = _pick_driver()
     conn_str = (
         f"DRIVER={{{driver}}};"
@@ -25,15 +26,17 @@ def _connect_plan() -> pyodbc.Connection:
         "Encrypt=yes;"
         "TrustServerCertificate=yes;"
     )
-    return pyodbc.connect(conn_str)
+    quoted_conn_str = urllib.parse.quote_plus(conn_str)
+    # Tworzymy silnik z wbudowaną optymalizacją dla wielu rekordów!
+    return create_engine(f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}", fast_executemany=True)
 
 def fetch_workplace_config() -> pd.DataFrame:
     sql = f"SELECT workplace, speed_m_per_min, count_by_shift FROM {PLAN_TABLE}"
-    with _connect_plan() as conn:
-        df = pd.read_sql(sql, conn)
+    engine = _get_plan_engine()
+    
+    # --- # Pandas woli dostać po prostu engine. Sam zarządza otwarciem i zamknięciem. ---
+    df = pd.read_sql(sql, engine)
     return df
-
-# ... masz już PLAN_SERVER/PLAN_DB/PLAN_TABLE/_connect_plan()
 
 def insert_missing_workplaces(df_missing: pd.DataFrame) -> None:
     """
@@ -55,48 +58,45 @@ def insert_missing_workplaces(df_missing: pd.DataFrame) -> None:
         cb = int(r["count_by_shift"]) if pd.notna(r["count_by_shift"]) else None
         rows.append((wp, sp, cb))
 
-    with _connect_plan() as conn:
+    engine = _get_plan_engine()
+    with engine.raw_connection() as conn:
         cur = conn.cursor()
-        cur.fast_executemany = True
         cur.executemany(sql, rows)
         conn.commit()
         
 def update_count_by_shift(workplace: str, count_by_shift: int) -> None:
     sql = f"UPDATE {PLAN_TABLE} SET count_by_shift = ? WHERE workplace = ?"
-    with _connect_plan() as conn:
+    engine = _get_plan_engine()
+    with engine.raw_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, (int(count_by_shift), str(workplace).strip()))
         conn.commit()
 
 def update_speed(workplace: str, speed_m_per_min: float) -> None:
     sql = f"UPDATE {PLAN_TABLE} SET speed_m_per_min = ? WHERE workplace = ?"
-    with _connect_plan() as conn:
+    engine = _get_plan_engine()
+    with engine.raw_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, (float(speed_m_per_min), str(workplace).strip()))
         conn.commit()
         
-# project/config/count_per_loader.py
+# --- project/config/count_per_loader.py ---
 def fetch_sap_basic_profiles(linia: str, day) -> pd.DataFrame:
     """
     Zwraca dane SAP dla danej linii i dnia.
     Kolumny wejściowe: INDEKS, ILOSC, JM, IL_SZT, LINIA, DATA, USER
     """
-    # if hasattr(day, "strftime"):
-    #     day_str = day.strftime("%Y-%m-%d")
-    # else:
-    #     day_str = str(day)
-
     sql = f"""
         SELECT INDEKS, ILOSC, JM, IL_SZT, LINIA, DATA, [USER]
         FROM {SAP_TABLE}
         WHERE LINIA = ?
           AND CAST(DATA as date) = CAST(? as date)
     """
-    # użyj tego samego _connect_plan() co już masz w pliku (kronos/Raporty)
-    with _connect_plan() as conn:
-        df = pd.read_sql(sql, conn, params=(linia, day))
+    # --- Pandas dzięki temu użyje SQLAlchemy do zapytania. ---
+    engine = _get_plan_engine()
+    df = pd.read_sql(sql, engine, params=(linia, day))
 
-    # normalizacja liczb i tekstów
+    # --- normalizacja liczb i tekstów ---
     df["INDEKS"] = df["INDEKS"].astype("string").str.strip()
     df["JM"] = df["JM"].astype("string").str.strip()
     df["LINIA"] = df["LINIA"].astype("string").str.strip()
@@ -105,7 +105,7 @@ def fetch_sap_basic_profiles(linia: str, day) -> pd.DataFrame:
     )
     df["ILOSC"] = pd.to_numeric(df["ILOSC"], errors="coerce").fillna(0.0)
 
-    # agregacja: na wszelki wypadek sumujemy metry, bo czasem index może się powtórzyć
+    # --- agregacja: na wszelki wypadek sumujemy metry, bo czasem index może się powtórzyć ---
     df_sum = cast(pd.DataFrame, df.groupby(["INDEKS", "JM", "LINIA"], as_index=False)["ILOSC"].sum())
     return df_sum
 

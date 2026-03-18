@@ -1,10 +1,8 @@
-# project/db/db_loader.py
-from __future__ import annotations
-
 import pandas as pd
 import pyodbc
 from datetime import date
-
+from sqlalchemy import create_engine
+import urllib.parse
 
 SERVER = r"sipdbprod\hydms1"
 DATABASE = "hydrawlo"
@@ -20,7 +18,32 @@ def _pick_driver() -> str:
             return name
     raise RuntimeError(f"No SQL Server ODBC driver found. Available: {drivers}")
 
-# driver = _pick_driver()
+def _get_hydra_engine():
+    driver = _pick_driver()
+    conn_str = (
+        f"DRIVER={{{driver}}};"
+        f"SERVER={SERVER};"
+        f"DATABASE={DATABASE};"
+        "Trusted_Connection=yes;"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
+    )
+    # SQLAlchemy wymaga zakodowania znaków specjalnych (jak klamry w sterowniku) do formatu URL
+    quoted_conn_str = urllib.parse.quote_plus(conn_str)
+    return create_engine(f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}")
+
+def _get_sap_engine():
+    driver = _pick_driver()
+    conn_str = (
+        f"DRIVER={{{driver}}};"
+        f"SERVER={SAP_SERVER};"
+        f"DATABASE={SAP_DATABASE};"
+        "Trusted_Connection=yes;"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
+    )
+    quoted_conn_str = urllib.parse.quote_plus(conn_str)
+    return create_engine(f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}")
 
 def _connect_hydra() -> pyodbc.Connection:
     driver = _pick_driver()  # <- dopiero teraz, na żądanie
@@ -55,7 +78,9 @@ def fetch_available_machines() -> list[str]:
         WHERE masch_nr IS NOT NULL AND LTRIM(RTRIM(masch_nr)) <> ''
         ORDER BY masch_nr
     """
-    with _connect_hydra() as conn:
+    
+    engine = _get_hydra_engine()
+    with engine.connect() as conn:
         df = pd.read_sql(sql, conn)
 
     return df["masch_nr"].astype("string").str.strip().dropna().tolist()
@@ -91,7 +116,8 @@ def fetch_orders_for_machines(machines: list[str]) -> pd.DataFrame:
           AND eingeplant = 'M'
     """
 
-    with _connect_hydra() as conn:
+    engine = _get_hydra_engine()
+    with engine.connect() as conn:
         df = pd.read_sql(sql, conn, params=tuple(machines))
 
     return df
@@ -101,7 +127,8 @@ def debug_machine_filters(machine: str):
     df = fetch_orders_for_machines([machine])
 
     # wersja BEZ filtrów – surowa prawda z DB
-    with _connect_hydra() as conn:
+    engine = _get_hydra_engine()
+    with engine.connect() as conn:
         sql = f"""
             SELECT TOP 200
                 masch_nr,
@@ -188,7 +215,8 @@ def fetch_sap_basic_profiles(linia: str, day: date) -> pd.DataFrame:
         FROM dbo.HANA_ZMDRS_RAPORT
         WHERE LINIA = ? AND CAST(DATA as date) = ?
     """
-    with _connect_sap() as conn:
+    engine = _get_hydra_engine()
+    with engine.connect() as conn:
         df = pd.read_sql(sql, conn, params=[linia, day])
 
     # normalizacja ilości (przecinki)
