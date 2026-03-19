@@ -1,14 +1,10 @@
 import pandas as pd
 import pyodbc
+import urllib.parse
 from datetime import date
 from sqlalchemy import create_engine
-import urllib.parse
+from project.config.paths import SERVER, DATABASE, SAP_SERVER, SAP_DATABASE, VIEW_FULLNAME
 
-SERVER = r"sipdbprod\hydms1"
-DATABASE = "hydrawlo"
-VIEW_FULLNAME = "hydadm.SOP_Abfrage_Auftragsbestand_Sochacki"
-SAP_SERVER = "kronos.sip.local"
-SAP_DATABASE = "Raporty"
 
 
 def _pick_driver() -> str:

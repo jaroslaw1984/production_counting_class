@@ -1,7 +1,7 @@
 from project.config.workplace_config_provider import merge_db_and_csv_config
 from project.config.db_loader import fetch_available_machines
 from project.config.count_per_loader import update_count_by_shift
-from project.GUI.main_windows import MACHINE_CONFIG_PATH
+from project.config.paths import MACHINE_CONFIG_PATH
 import pandas as pd
 
 class MainController:
