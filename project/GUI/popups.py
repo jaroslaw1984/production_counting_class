@@ -4,6 +4,8 @@ import pandas as pd
 import sys
 import os
 import subprocess
+import json
+import threading
 from pathlib import Path
 from tkinter import messagebox
 from typing import Callable
@@ -156,7 +158,7 @@ class MachineSelectPopup(ctk.CTkToplevel):
                 return
             pps_by_machine[m] = int(val)
 
-        # Wykrywanie zmian w konfiguracji
+        # --- Wykrywanie zmian w konfiguracji ---
         changes = []
         for m, sv in self.pps_vars.items():
             new_val = self._parse_int_or_none(sv.get())
@@ -177,7 +179,7 @@ class MachineSelectPopup(ctk.CTkToplevel):
             )
 
         self.destroy()
-        # Wysyłamy paczkę danych do Kontrolera!
+        # --- Wysyłamy paczkę danych do Kontrolera! ---
         self.on_confirm(selected, pps_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
 
 # --- Popip dla przycisku 'O programie' ---
@@ -190,8 +192,11 @@ class AboutPopup(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         center_popup(parent, self)
         
-        # Uruchamia budowę UI (tylko jedna funkcja budująca)
+        # --- Uruchamia budowę UI (tylko jedna funkcja budująca) ---
         self._build_ui()
+        
+        # --- Uruchomienie sprawdzania aktualizacji ---
+        self._check_update_async()
                 
     def _build_ui(self):
         # --- kolumna nazwy okna --- 
@@ -242,7 +247,7 @@ class AboutPopup(ctk.CTkToplevel):
         status_lbl.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="ew")
         
         # --- Przycisk aktualizacji (zapisany jako self, by móc go ukrywać/pokazywać w innej funkcji) ---        
-        update_btn = ctk.CTkButton(
+        self.update_btn = ctk.CTkButton(
             self,
             text="",
             fg_color="#1f6aa5",
@@ -250,9 +255,10 @@ class AboutPopup(ctk.CTkToplevel):
             command=self._on_update_click,
             )    
             
-        update_btn.grid(row=5, column=0, padx=20, pady=(0, 12), sticky="ew")
-        update_btn.grid_remove()  # ukryty domyślnie
+        self.update_btn.grid(row=5, column=0, padx=20, pady=(0, 12), sticky="ew")
+        self.update_btn.grid_remove()  # ukryty domyślnie
 
+        # --- Stopka ---
         footer_lbl = ctk.CTkLabel(self,
                                   text=f"© Rok: {PROGRAM_YEAR} {PROGRAM_AUTHOR}",
                                   justify="center",
@@ -264,21 +270,7 @@ class AboutPopup(ctk.CTkToplevel):
         # --- Przycisk OK ---
         ok_btn = ctk.CTkButton(self, text="OK", command=self.destroy)
         ok_btn.grid(row=7, column=0, padx=20, pady=(0, 16))
-        
-        # --- Stopka ---
-        footer_lbl = ctk.CTkLabel(
-            self,
-            text=f"© Rok: {PROGRAM_YEAR} {PROGRAM_AUTHOR}",
-            justify="center",
-            font=ctk.CTkFont(size=12),
-            text_color="#9aa0a6",
-            )
-        footer_lbl.grid(row=6, column=0, padx=20, pady=(0, 12), sticky="ew")        
-                
-        # --- przycisk "OK" który zamyka okono "O programie" --- 
-        ok_btn = ctk.CTkButton(self, text="OK", command=self.destroy)
-        ok_btn.grid(row=7, column=0, padx=20, pady=(0, 16))
-        
+    
     # --- sekcja aktualizacji – ukryta domyślnie, pokażmy ją tylko jeśli jest aktualizacja ---
     def _on_update_click(self):
         app_exe = Path(sys.argv[0]).resolve()
@@ -308,9 +300,9 @@ class AboutPopup(ctk.CTkToplevel):
             close_fds=True,
         )
 
-        # zamykamy aplikację, żeby zwolnić pliki (na 100% kończymy proces)
+        # --- zamykamy aplikację, żeby zwolnić pliki (na 100% kończymy proces) ---
         try:
-            # najpierw zamknij okna GUI
+            # --- najpierw zamknij okna GUI ---
             try:
                 self.destroy()
             except Exception:
@@ -321,8 +313,53 @@ class AboutPopup(ctk.CTkToplevel):
             except Exception:
                 pass
 
-            # twarde wyjście = brak ryzyka, że PID dalej żyje i blokuje pliki
+            # --- twarde wyjście = brak ryzyka, że PID dalej żyje i blokuje pliki ---
             os._exit(0)
         except Exception:
             os._exit(0)   
-            
+
+    # --- Logika Aktualizacji ---
+    def _version_tuple(self, v: str) -> tuple[int, ...]:
+        """Rozbija tekst '2.0.2' na krotkę liczb (2, 0, 2), co pozwala na łatwe porównywanie z operatorem '>'"""
+        try:
+            return tuple(int(x) for x in str(v).strip().split("."))
+        except Exception:
+            return (0,)
+
+    # --- Pobiera i odczytuje plik JSON z sieci firmowej ---
+    def _fetch_latest_info(self) -> dict:
+        p = Path(LATEST_JSON_PATH)
+        raw = p.read_text(encoding="utf-8")
+        return json.loads(raw)
+
+    # --- Uruchamia sprawdzanie w osobnym wątku (żeby okienko nie 'wisiało') ---
+    def _check_update_async(self):
+        def worker():
+            try:
+                data = self._fetch_latest_info()
+                server_version = str(data.get("version", "")).strip()
+                if not server_version:
+                    raise ValueError("latest.json nie ma pola 'version'")
+                
+                # Zamiast dotykać GUI bezpośrednio, zlecamy to głównemu wątkowi okna przez .after(0, ...)
+                self.after(0, lambda: self._on_update_check_done(server_version, None))
+            except Exception as e:
+                self.after(0, lambda: self._on_update_check_done(None, f"{type(e).__name__}: {e}"))
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    # --- Ta funkcja wywoływana jest po zakończeniu wątku i bezpiecznie aktualizuje widok ---
+    def _on_update_check_done(self, server_version: str | None, error: str | None):
+        if error:
+            self.status_var.set(f"Nie mogę sprawdzić aktualizacji:\n{error}")
+            return
+
+        assert server_version is not None
+        if self._version_tuple(server_version) > self._version_tuple(PROGRAM_VERSION):
+            self.status_var.set("Dostępna aktualizacja ✅")
+            self.update_btn.configure(text=f"Pobierz nową wersję: {server_version}")
+            self.update_btn.grid()  # Pokazujemy ukryty wcześniej przycisk
+        else:
+            self.status_var.set("Posiadasz najnowszą wersję programu.")
+            self.update_btn.grid_remove()            
