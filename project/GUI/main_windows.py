@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from project.GUI.popups import MachineSelectPopup
+from project.GUI.popups import MachineSelectPopup, AboutPopup
 from project.core.app_state import AppState
 from tkinter import messagebox
 
@@ -154,7 +154,7 @@ class MainWindow:
         print("Pomoc")
         
     def about_btn(self):
-        print("O programe")
+        AboutPopup(self.root)
 
     def run(self):
         self.root.mainloop()
