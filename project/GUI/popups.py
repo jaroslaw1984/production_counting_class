@@ -428,8 +428,8 @@ class HelpWindow(ctk.CTkToplevel):
         
         # 2. Tutaj zbuduj główny kontener (ctk.CTkScrollableFrame) i przypisz go do self.scroll
         # --- scroll ---
-        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=18, pady=0)        
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=18, pady=0)        
 
         # 3. Wczytaj dane z pliku JSON (wykorzystaj self._load_help_sections)
         # sections = self._load_help_sections(HELP_SECTIONS_PATH)
@@ -463,6 +463,7 @@ class HelpWindow(ctk.CTkToplevel):
     # # # # # # # # # # # # # # # # # # # # # # # # #
     # METODY WEWNĘTRZNE (Logika i animacje)         #
     # # # # # # # # # # # # # # # # # # # # # # # # #
+    
     # --- funkcja ładująca sekcje pomocy z pliku JSON (możesz ją modyfikować, np. dodając cache, obsługę błędów itp.) ---
     def _load_help_sections(self, path):
         try:
@@ -476,7 +477,7 @@ class HelpWindow(ctk.CTkToplevel):
         """Generowanie pojedynczej rozwijanej karty"""
         # To jest najdłuższa część. Skopiuj tu logikę tworzenia "card", "header_row", "content".
         # Pamiętaj o przeniesieniu tu również zagnieżdżonych funkcji (render_body, toggle, close, open_)
-        card = ctk.CTkFrame(self, fg_color=("#ffffff", "#1f1f1f"), corner_radius=14)
+        card = ctk.CTkFrame(self.scroll, fg_color=("#ffffff", "#1f1f1f"), corner_radius=14)
         card.pack(fill="x", padx=6, pady=8)
 
         card.pack_propagate(True)   # <-- KLUCZ: karta ma się kurczyć do zawartości
@@ -728,6 +729,7 @@ class HelpWindow(ctk.CTkToplevel):
         """Przewijanie paska do otwartego widgetu"""
         try:
             self.update_idletasks()
+            self.scroll.update_idletasks() # <-- Dodano odświeżanie scrolla
 
             canvas = getattr(self, "_parent_canvas", None) or getattr(self, "_canvas", None)
             if canvas is None:
@@ -735,6 +737,7 @@ class HelpWindow(ctk.CTkToplevel):
 
             self._refresh_scrollregion()
             self.update_idletasks()
+            self.scroll.update_idletasks() # <-- Dodano odświeżanie scrolla
 
             bbox = canvas.bbox("all")
             if not bbox:
@@ -753,7 +756,7 @@ class HelpWindow(ctk.CTkToplevel):
     def _refresh_scrollregion(self):
         try:
             self.update_idletasks()
-            canvas = getattr(self, "_parent_canvas", None) or getattr(self, "_canvas", None)
+            canvas = getattr(self.scroll, "_parent_canvas", None) or getattr(self, "_canvas", None)
             if canvas is not None:
                 canvas.configure(scrollregion=canvas.bbox("all"))
         except Exception:
