@@ -8,6 +8,7 @@ SHIFTS_PER_DAY = 3
 
 # --- ścieżka do pliku z helpem ---
 HELP_SECTIONS_PATH = BASE_DIR / "data" / "help_sections.json"
+HELP_SECTIONS_IMAGES = BASE_DIR / "data" / "help_images"
 LATEST_JSON_PATH = r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\latest.json"
 
 # --- aliasy ---

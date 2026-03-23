@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from project.GUI.popups import MachineSelectPopup, AboutPopup
+from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow
 from project.core.app_state import AppState
 from tkinter import messagebox
 
@@ -151,7 +151,7 @@ class MainWindow:
         print("Czyszczenie tekstu...")
         
     def help_btn(self):
-        print("Pomoc")
+        HelpWindow(self.root)
         
     def about_btn(self):
         AboutPopup(self.root)
