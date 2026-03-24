@@ -11,17 +11,6 @@ HELP_SECTIONS_PATH = BASE_DIR / "data" / "help_sections.json"
 HELP_SECTIONS_IMAGES = BASE_DIR / "data" / "help_images"
 LATEST_JSON_PATH = r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\latest.json"
 
-# --- aliasy ---
-ORDER_ALIASES = [
-    "zlecenie", "nr zlecenia", "zlecenie nr",
-    "auftrag", "auftragsnr", "auftragsnummer",
-    "order", "order id"
-]
-
-GRUNDPROFIL_ALIASES = [
-    "grundprofil", "grund profil", "grund-profil",
-    "podkład", "podklad", "profil podstawowy"
-]
 
 # --- ścieżki do serwera
 SERVER = r"sipdbprod\hydms1"
