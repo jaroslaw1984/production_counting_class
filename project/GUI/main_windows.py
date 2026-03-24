@@ -1,8 +1,7 @@
 import customtkinter as ctk
+from tkinter import messagebox, filedialog
 from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow
 from project.core.app_state import AppState
-from tkinter import messagebox
-
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -36,8 +35,8 @@ class MainWindow:
         # --- główny kontener ---
         self.left = ctk.CTkFrame(self.root)
         self.left.grid(row=0, column=0, sticky="ns", padx=5, pady=5)
-        self.left.grid_columnconfigure(0, weight=1) # tylko góra-dół
-        self.left.grid_rowconfigure(1, weight=1)  # push przyciski do góry
+        self.left.grid_columnconfigure(0, weight=1) 
+        self.left.grid_rowconfigure(1, weight=1)  
         
         # --- górne przyciski ---
         self.top_frame = ctk.CTkFrame(self.left, fg_color="transparent")
@@ -49,13 +48,11 @@ class MainWindow:
         self.down_frame.grid(row=2, column=0, sticky="ns", pady=(10, 10))
         self.down_frame.grid_columnconfigure(0, weight=1)
                
-        # --- definicja dla górnych przycisków (tekst, handler) ---
+        # --- definicja dla górnych przycisków (bez martwego kodu!) ---
         top_buttons = [
             ("Wczytaj maszyny", self.loading_machine_data),
-            ("Wczytaj plik", self.on_open_file),
-            ("Przelicz produkcję", self.calculate_production),
             ("Generuj raport", self.generate_logistics_report),
-            ("Potwierdż termin", self.confirm_order),
+            ("Potwierdź termin", self.confirm_order),
             ("Wyczyść", self.clean_text),
         ]
     
@@ -69,22 +66,21 @@ class MainWindow:
             )
             btn.grid(row=row, column=0, sticky="ew", padx=10, pady=10)
             
-        # --- Ręczna definicja przycisku motywu w dolnym panelu ---
+        # --- Ręczna definicja przycisku motywu ---
         self.theme_button = ctk.CTkButton(
             self.down_frame,
-            text=self._get_theme_button_text(), # Od razu pobiera właściwy tekst
+            text=self._get_theme_button_text(), 
             command=self.change_theme,
             font=self.default_font
         )
         self.theme_button.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
              
-        # --- definicja dolnych przycisków (tekst, handler) ---     
+        # --- definicja dolnych przycisków ---     
         bottom_buttons = [
             ("Pomoc", self.help_btn),
             ("O programie", self.about_btn)  
         ]
         
-        # --- tworzenie przycisków dolnych w pętli --- 
         for row, (label, handler) in enumerate(bottom_buttons, start=1):
             btn = ctk.CTkButton(
                 self.down_frame,
@@ -99,56 +95,49 @@ class MainWindow:
     # # # # # # # # # # # # # # # # #                  
 
     def _build_right_panel(self):
-        # --- Prawa część (rośnie w obie strony ---
         self.right = ctk.CTkFrame(self.root)
-        self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) # rośnie w obie strony
+        self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) 
 
-        # --- Wnętrze prawego panelu też responsywne ---
         self.right.grid_columnconfigure(0, weight=1)
-        self.right.grid_rowconfigure(0, weight=0)  # toolbar
-        self.right.grid_rowconfigure(1, weight=1)  # treść (textbox / tabela)        
+        self.right.grid_rowconfigure(0, weight=0)  
+        self.right.grid_rowconfigure(1, weight=1)       
 
         self.text = ctk.CTkTextbox(self.right)
         self.text.grid(row=1, column=0, sticky="nsew")
         self.text.configure(state="disabled") 
     
-    # --- pobieranie tekstu dla zmiany motywu    
     def _get_theme_button_text(self) -> str:
         return "Jasny motyw" if ctk.get_appearance_mode() == "Dark" else "Ciemny motyw"
     
-    # --- zmiana motywu Dark / Light ---
     def change_theme(self):
         if ctk.get_appearance_mode() == "Light":
             ctk.set_appearance_mode("Dark")
         else:
             ctk.set_appearance_mode("Light")
-            
-        # --- aktualizacja tekstu przycisku ---
         self.theme_button.configure(text=self._get_theme_button_text())
-        
-    # --- Konfiguracja layoutu root window ---        
+               
     def _configure_layout(self):    
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # #
+    # Przekierowania akcji przycisków do Kontrolera   #
+    # # # # # # # # # # # # # # # # # # # # # # # # # #
         
     def loading_machine_data(self):
         if hasattr(self, 'controller'):
             self.controller.handle_load_machines()
         
-    def on_open_file(self):
-        print("Otwieranie pliku...")
-        
-    def calculate_production(self):
-        print("Liczenie produkcji...")
-        
     def generate_logistics_report(self):
-        print("Generowanie raportu logistycznego...")
+        if hasattr(self, 'controller'):
+            self.controller.handle_generate_report()
         
     def confirm_order(self):
-        print("Potwierdzenie raportu...")
+        if hasattr(self, 'controller'):
+            self.controller.handle_confirm_order()
         
     def clean_text(self):
-        print("Czyszczenie tekstu...")
+        print("Czyszczenie tekstu...") # Tym zajmiemy się na samym końcu
         
     def help_btn(self):
         HelpWindow(self.root)
@@ -160,17 +149,26 @@ class MainWindow:
         self.root.mainloop()
         
     # # # # # # # # # # # # # # # # # # # # # #
-    # Helpery dla kontrolera controllers.py)  #
+    # Helpery dla kontrolera (controllers.py) #
     # # # # # # # # # # # # # # # # # # # # # #
     
-    # --- obsługa błędów ---
     def show_error(self, title: str, message: str):
         messagebox.showerror(title, message)
         
     def show_warning(self, title: str, message: str):
-        messagebox.showerror(title, message)
+        messagebox.showwarning(title, message)
         
-    # --- Wyświetlanie w popup listę maszyn ---
     def show_machine_select_popup(self, machines: list[str], df_mc, on_confirm):
-        # # Otwieramy popup i przekazujemy mu dane oraz funkcję zwrotną
         MachineSelectPopup(self.root, machines, df_mc, on_confirm)
+
+    # UNIWERSALNA FUNKCJA POBIERANIA ŚCIEŻKI DO PLIKU
+    def ask_for_file_path(self, title="Wybierz plik Excel/CSV") -> str | None:
+        file_path = filedialog.askopenfilename(
+            title=title,
+            filetypes=[
+                ("Excel files", ("*.xlsx", "*.xls")),
+                ("CSV files", ("*.csv",)),
+                ("All files", ("*.*",)),
+            ],
+        )
+        return file_path if file_path else None
