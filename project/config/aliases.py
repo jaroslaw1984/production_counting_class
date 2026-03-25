@@ -11,3 +11,6 @@ GRUNDPROFIL_ALIASES = [
 ]
 
 ARTICLE_ALIASES = ["artykuł", "artykul", "artikel", "article", "item", "material", "indeks"]
+
+GOOD_PRODUKTION_ALIASES = ["Ilość dobrej produkcji (P)", "Ilość dobrej produkcji(P)",
+                           "Ilość dobrej produkcji P",]
