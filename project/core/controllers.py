@@ -3,7 +3,7 @@ from project.config.db_loader import fetch_available_machines
 from project.config.count_per_loader import update_count_by_shift
 from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
-from tkinter import filedialog
+from project.config.db_loader import fetch_available_machines
 from pathlib import Path
 import pandas as pd
 
@@ -39,6 +39,7 @@ class MainController:
             # --- Błąd (np. brak VPN / sterownika) -> polecenie dla widoku, aby wyświetlił błąd ---
             error_msg = f"Brak sterownika ODBC / brak dostępu do sieci firmowej.\n\nMożesz użyć trybu: Wczytaj plik (Excel)\n\nSzczegóły błędu:\n{str(e)}"
             self.view.show_error("Błąd połączenia:", error_msg)
+            return
             
     # --- To ona odbiera kliknięcie "Przelicz" z popupu ---
     def on_machines_selected(self, selected_machines, pps_by_machine, save_snapshot, changes, should_save_config):
@@ -83,8 +84,26 @@ class MainController:
             # --- Zabezpieczenie przed anulowaniem ---
             if file_path is None: return
             
-            # 3. Jeśli mamy ścieżkę, przekaż ją do naszego nowego, wspólnego "silnika"
+            # --- Jeśli mamy ścieżkę, przekaż ją do naszego nowego, wspólnego "silnika" ---
             self._load_hydra_file(file_path)
+            
+            # --- sprawdzmy czy wczytywanie się udało (czy stany nie są puste) ---
+            if self.state.df_hydra is None or self.state.smart_plan_df is None:
+            # --- wczytywanie padło (błąd został już wyświetlony przez _load_hydra_file) ---  
+                return
+            
+            try:
+                self.machines = fetch_available_machines()
+            except Exception as e:
+                self.view.show_error("Błąd generowania raportu", str(e))
+                
+            machines = sorted({machin.strip() for machin in self.machines if str(machin).strip()})
+            
+            self.view.show_report_params_popup(machines, self.on_report_params_selected)
+            
+    def on_report_params_selected(self, params: dict):
+        """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
+        print(f"Kontroler otrzymał parametry od użytkownika: {params}")
 
 
     def _load_hydra_file(self, file_path: str):
