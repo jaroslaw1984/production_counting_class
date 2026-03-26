@@ -6,10 +6,11 @@ import os
 import subprocess
 import json
 import threading
+from datetime import date, datetime, timedelta
 from PIL import Image
 from pathlib import Path
 from tkinter import messagebox
-from typing import Callable
+from typing import Callable, Tuple
 from project.config.version import (
     PROGRAM_NAME,
     PROGRAM_VERSION,
@@ -793,3 +794,100 @@ class HelpWindow(ctk.CTkToplevel):
             # strzałki w sekcjach (jeśli trzymasz referencje w liście) też możesz tu odświeżać
         except Exception:
             pass
+
+class ReportParamsPopup(ctk.CTkToplevel):
+    def __init__(self, parent, machines: list[str], on_confirm):
+        super().__init__(parent)
+        self.title("Parametry raportu")
+        self.resizable(False, False)
+        self.grab_set()
+        center_popup(parent, self)
+        
+        # --- Czysta lista maszyn przekazana z Kontrolera ---
+        self.machines = sorted({machine.strip() for machine in machines if str(machine).strip()})
+        self.on_confirm = on_confirm
+        
+        self._build_ui()
+        
+    def _build_ui(self):
+        # TODO 1: Skopiuj ze starego kodu tworzenie ComboBoxa dla wyboru maszyny (linia_var)
+        ctk.CTkLabel(self, text="Wybierz maszynę (LINIA):").pack(anchor="w", padx=12, pady=(12, 4))
+        self.linia_var = tk.StringVar(value=self.machines[0] if self.machines else "")
+        self.linia_cb = ctk.CTkComboBox(self, values=self.machines, variable=self.linia_var, width=260)
+        self.linia_cb.pack(anchor="w", padx=12, pady=(0, 10))        
+        
+        # TODO 2: Skopiuj tworzenie CTkEntry dla zlecenia startowego (start_var) z walidacją na cyfry
+        ctk.CTkLabel(self, text="Startowe zlecenie nowej grupy:").pack(anchor="w", padx=12, pady=(0, 4))
+        
+        vcmd = self.register(self._only_digits)
+
+        self.start_var = tk.StringVar(value="")
+        self.start_entry = ctk.CTkEntry(
+            self,
+            textvariable=self.start_var,
+            width=260,
+            validate="key",
+            validatecommand=(vcmd, "%P")
+        )
+        self.start_entry.pack(anchor="w", padx=12, pady=(0, 12))
+        self.start_entry.focus_set() 
+               
+        # TODO 3: Skopiuj tworzenie ramki z wyborem daty (day_mode_var: 'today'/'date' oraz day_str_var)
+        # --- Dzień danych (SAP/DB) ---
+        self.day_mode_var = tk.StringVar(value="today")  # today | date
+        self.day_str_var = tk.StringVar(value=date.today().isoformat())
+
+        day_frame = ctk.CTkFrame(self, fg_color="transparent")
+        day_frame.pack(fill="x", padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(day_frame, text="Dane z dnia:", width=60, anchor="w").pack(side="left")
+        ctk.CTkRadioButton(day_frame, text="dziś", width=60,  variable=self.day_mode_var, value="today").pack(side="left", padx=5)
+        ctk.CTkRadioButton(day_frame, text="z daty", width=60, variable=self.day_mode_var, value="date").pack(side="left", padx=5)
+
+        day_entry = ctk.CTkEntry(day_frame, width=140, textvariable=self.day_str_var)
+        day_entry.pack(side="left", padx=10)
+        ctk.CTkLabel(day_frame, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left") 
+               
+        # TODO 4: Stwórz przyciski "Anuluj" (self.destroy) i "OK" (wywołujący self._on_ok)
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+
+        ctk.CTkButton(btns, text="Anuluj", command=self.destroy).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right")
+
+    def _on_ok(self):
+        linia = (self.linia_var.get() or "").strip().upper()
+        start_order_id = (self.start_var.get() or "").strip()
+
+        if not start_order_id:
+            messagebox.showwarning("Brak zlecenia", "Podaj startowe zlecenie.")
+            return
+
+        if not start_order_id.isdigit():
+            messagebox.showwarning(
+                "Błędna wartość",
+                "Startowe zlecenie musi składać się wyłącznie z cyfr."
+            )
+            return
+        
+        # --- parsowanie dnia ---
+        mode = self.day_mode_var.get()
+        ds = (self.day_str_var.get() or "").strip()
+
+        if mode == "date":
+            try:
+                day_value = datetime.strptime(ds, "%Y-%m-%d").date()
+            except ValueError:
+                messagebox.showerror("Błąd daty", "Podaj datę w formacie YYYY-MM-DD.")
+                return
+        else:
+            day_value = date.today()
+
+        result = {"linia": linia, "start_order_id": start_order_id, "day": day_value}            
+
+        self.on_confirm(result)
+        self.destroy()
+    
+    def _only_digits(self, new_value: str) -> bool:
+        # pozwalamy na pusty (user jeszcze pisze)
+        return new_value.isdigit() or new_value == ""    

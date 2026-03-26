@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow
+from project.GUI.popups import ReportParamsPopup
 from project.core.app_state import AppState
 
 class MainWindow:
@@ -172,3 +173,6 @@ class MainWindow:
             ],
         )
         return file_path if file_path else None
+    
+    def show_report_params_popup(self, machines: list[str], on_confirm):
+        ReportParamsPopup(self.root, machines, on_confirm)
