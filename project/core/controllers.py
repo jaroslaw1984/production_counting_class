@@ -97,7 +97,7 @@ class MainController:
             except Exception as e:
                 self.view.show_error("Błąd generowania raportu", str(e))
                 
-            machines = sorted({machin.strip() for machin in self.machines if str(machin).strip()})
+            machines = sorted({machine.strip() for machine in self.machines if str(machine).strip()})
             
             self.view.show_report_params_popup(machines, self.on_report_params_selected)
             
