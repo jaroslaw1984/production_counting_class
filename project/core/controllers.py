@@ -104,6 +104,24 @@ class MainController:
     def on_report_params_selected(self, params: dict):
         """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
         print(f"Kontroler otrzymał parametry od użytkownika: {params}")
+        
+        linia_value = params["linia"]
+        start_order_id = params["start_order_id"]
+        day_value = params["day"]
+        
+        try:
+            # --- użycie funkcji aby przyciąć kolejkę Hydry
+            df_group = self._cut_from_order(self.state.df_hydra, start_order_id)
+            
+            if self.state.smart_plan_df is not None:
+                df_cut_plan = self._cut_from_order(self.state.smart_plan_df, start_order_id)
+            
+            print(f"Sukces! Wycięto dane. Zostało wierszy w Hydrze: {len(df_group)}")
+        except Exception as e:
+            # --- łapiemy błąd jeśli np. planista wpisał złe zlecenie, którego nie ma w pliku
+            self.view.show_error("Błąd cięcia danych", str(e))
+            return
+            
 
 
     def _load_hydra_file(self, file_path: str):
@@ -265,3 +283,34 @@ class MainController:
             if non_empty.isin(allowed).mean() > 0.8:
                 return col
         raise ValueError("Nie znaleziono kolumny strony (20/21/22/23).")
+    
+    def _normalize_order_id(self, s: str) -> str:
+        """Czyści numer zlecenia z zer wiodących i końcówek .0"""
+        s = str(s).strip()
+        import re
+        s = re.sub(r"\.0$", "", s)
+        s = s.lstrip("0")
+        return s if s != "" else "0"
+
+    def _cut_from_order(self, df: pd.DataFrame, start_order_id: str) -> pd.DataFrame:
+        """Obcina DataFrame od podanego zlecenia (włącznie) do końca."""
+        if "order_id" not in df.columns:
+            raise ValueError("Brak kolumny order_id w danych.")
+
+        start_norm = self._normalize_order_id(start_order_id)
+
+        tmp = df.copy()
+        tmp["_order_norm"] = tmp["order_id"].astype("string").apply(self._normalize_order_id)
+
+        hits = tmp.index[tmp["_order_norm"] == start_norm].tolist()
+        
+        if not hits:
+            # --- tworzymy próbkę pierwszych zleceń do komunikatu błędu ---
+            sample = tmp["order_id"].astype("string").head(10).tolist()
+            raise ValueError(
+                f"Nie znaleziono startowego zlecenia: {start_order_id}\n"
+                f"(pierwsze zlecenia w pliku to np.: {sample})"
+            )
+
+        # Zwraca DataFrame od pierwszego trafienia do samego końca
+        return df.loc[hits[0]:].reset_index(drop=True)
