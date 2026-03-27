@@ -3,9 +3,10 @@ from project.config.db_loader import fetch_available_machines
 from project.config.count_per_loader import update_count_by_shift
 from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
-from project.config.db_loader import fetch_available_machines
+from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines
 from pathlib import Path
 import pandas as pd
+import traceback
 
 class MainController:
     def __init__(self, state, view):
@@ -102,28 +103,51 @@ class MainController:
             self.view.show_report_params_popup(machines, self.on_report_params_selected)
             
     def on_report_params_selected(self, params: dict):
-        """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
-        print(f"Kontroler otrzymał parametry od użytkownika: {params}")
-        
-        linia_value = params["linia"]
-        start_order_id = params["start_order_id"]
-        day_value = params["day"]
-        
-        try:
-            # --- użycie funkcji aby przyciąć kolejkę Hydry
-            df_group = self._cut_from_order(self.state.df_hydra, start_order_id)
+            """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
+            print(f"Kontroler otrzymał parametry od użytkownika: {params}")
             
+            linia_value = params["linia"]
+            start_order_id = params["start_order_id"]
+            day_value = params["day"]
+            
+            # --- 1. Cięcie Hydry (OBOWIĄZKOWE) ---
+            try:
+                df_group = self._cut_from_order(self.state.df_hydra, start_order_id)
+                traceback.print_exc()
+            except Exception as e:
+                # Jeśli nie ma zlecenia w Hydrze, przerywamy wszystko
+                self.view.show_error("Błąd cięcia danych (Hydra)", str(e))
+                return
+
+            # --- 2. Cięcie Smart Planu (OPCJONALNE / SMART MATCHING) ---
+            df_cut_plan = None
             if self.state.smart_plan_df is not None:
-                df_cut_plan = self._cut_from_order(self.state.smart_plan_df, start_order_id)
-            
-            print(f"Sukces! Wycięto dane. Zostało wierszy w Hydrze: {len(df_group)}")
-        except Exception as e:
-            # --- łapiemy błąd jeśli np. planista wpisał złe zlecenie, którego nie ma w pliku
-            self.view.show_error("Błąd cięcia danych", str(e))
-            return
-            
+                try:
+                    df_cut_plan = self._cut_from_order(self.state.smart_plan_df, start_order_id)
+                except Exception as e:
+                    # Jeśli plan nie ma tego zlecenia, tylko ostrzegamy, nie przerywamy!
+                    print(f"Uwaga: Brak zlecenia w Smart Planie. Wyłączam Smart Matching.")
+                    self.view.show_warning(
+                        "Ostrzeżenie Smart Plan", 
+                        f"Plan nie pasuje do startowego zlecenia.\nRaport wygeneruje się bez inteligentnego dopasowania (Fallback).\n\nSzczegóły: {str(e)}"
+                    )
+                    df_cut_plan = None # Ustawiamy na None, żeby program użył trybu awaryjnego
 
-
+            # --- 3. Pobieranie SAP i budowa bloków ---
+            try:
+                blocks = self._build_blocks(df_group)
+                
+                df_sap = fetch_sap_basic_profiles(linia=linia_value, day=day_value)
+                if df_sap is None or df_sap.empty:
+                    raise ValueError(f"Nie znaleziono danych SAP dla linii: {linia_value} w dniu: {day_value}")
+                
+                print(f"Zbudowano bloków z Hydry: {len(blocks)}")
+                print(f"Pobrano wierszy z SAP: {len(df_sap)}")    
+                
+            except Exception as e:
+                self.view.show_error("Błąd przetwarzania raportu", str(e))
+                return
+            
     def _load_hydra_file(self, file_path: str):
         """Główny menedżer wczytywania pliku. Czyta plik raz, a potem deleguje zadania."""
         try:
@@ -314,3 +338,44 @@ class MainController:
 
         # Zwraca DataFrame od pierwszego trafienia do samego końca
         return df.loc[hits[0]:].reset_index(drop=True)
+    
+    def _build_blocks(self, df: pd.DataFrame) -> list[dict]:
+        """Grupuje ciągłe zlecenia o tym samym grundprofil i side w bloki."""
+        tmp = df.copy()
+        tmp["grundprofil"] = tmp["grundprofil"].astype("string").str.strip()
+        tmp["side"] = tmp["side"].astype("string").str.strip().str.zfill(4)
+        
+        # Opcjonalna normalizacja zer wiodących na potrzeby grupowania
+        mask = tmp["order_id"].str.fullmatch(r"\d+").fillna(False) & (tmp["order_id"].str.len() < 12)
+        tmp.loc[mask, "order_id"] = tmp.loc[mask, "order_id"].str.zfill(12)
+
+        blocks: list[dict] = []
+        prev = None
+        start = 0
+        keys = list(zip(tmp["grundprofil"].tolist(), tmp["side"].tolist()))
+
+        for i, key in enumerate(keys):
+            if key != prev:
+                if prev is not None:
+                    b = tmp.iloc[start:i]
+                    blocks.append({
+                        "gp": prev[0],
+                        "side": prev[1],
+                        "order_ids": set(b["order_id"].tolist()),
+                        "start_i": start,
+                        "end_i": i - 1,
+                    })
+                prev = key
+                start = i
+
+        if prev is not None and len(tmp) > 0:
+            b = tmp.iloc[start:]
+            blocks.append({
+                "gp": prev[0],
+                "side": prev[1],
+                "order_ids": set(b["order_id"].tolist()),
+                "start_i": start,
+                "end_i": len(tmp) - 1,
+            })
+            
+        return blocks
