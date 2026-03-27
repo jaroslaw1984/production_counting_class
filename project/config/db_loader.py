@@ -4,6 +4,7 @@ import urllib.parse
 from datetime import date
 from sqlalchemy import create_engine
 from project.config.paths import SERVER, DATABASE, SAP_SERVER, SAP_DATABASE, VIEW_FULLNAME
+from sqlalchemy import text
 
 
 
@@ -205,22 +206,22 @@ def normalize_db_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
-def fetch_sap_basic_profiles(linia: str, day: date) -> pd.DataFrame:
-    sql = """
+def fetch_sap_basic_profiles(linia: str, day) -> pd.DataFrame:
+    sql = text("""
         SELECT INDEKS, ILOSC, JM, IL_SZT, LINIA, DATA, [USER]
         FROM dbo.HANA_ZMDRS_RAPORT
-        WHERE LINIA = ? AND CAST(DATA as date) = ?
-    """
-    engine = _get_hydra_engine()
-    with engine.connect() as conn:
-        df = pd.read_sql(sql, conn, params=[linia, day])
+        WHERE LINIA = :linia_p AND CAST(DATA as date) = :day_p
+    """)
 
-    # normalizacja ilości (przecinki)
-    df["INDEKS"] = df["INDEKS"].astype("string").str.strip()
-    df["ILOSC"] = (
-        df["ILOSC"].astype("string").str.replace(",", ".", regex=False)
-    )
-    df["ILOSC"] = pd.to_numeric(df["ILOSC"], errors="coerce").fillna(0.0)
+    engine = _get_sap_engine()
+
+    with engine.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"linia_p": linia, "day_p": day})
+
+    if not df.empty:
+        df["INDEKS"] = df["INDEKS"].astype("string").str.strip()
+        df["ILOSC"] = df["ILOSC"].astype("string").str.replace(",", ".", regex=False)
+        df["ILOSC"] = pd.to_numeric(df["ILOSC"], errors="coerce").fillna(0.0)
 
     return df
 
