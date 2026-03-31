@@ -59,10 +59,11 @@ class MachineSelectPopup(ctk.CTkToplevel):
         self.df_mc = df_mc
         self.on_confirm = on_confirm
         
-        self.vars_map: dict[str, tk.BooleanVar] = {}
-        self.pps_vars: dict[str, tk.StringVar] = {}
-        self.default_pps: dict[str, int] = {}
-        self.save_snapshot_var = tk.BooleanVar(value=False)
+        self.vars_map: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy zaznaczona
+        self.pps_vars: dict[str, tk.StringVar] = {} # mapa: maszyna -> wartość szt./zmianę (string, bo to jest tekst w Entry)
+        self.weekend_vars: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy to jest weekend (checkbox)
+        self.default_pps: dict[str, int] = {} # mapa: maszyna -> domyślna wartość szt./zmianę (z DF, do porównania przy zapisie)
+        self.save_snapshot_var = tk.BooleanVar(value=False) # czy zapisać terminy do snapshotu (checkbox w popupie)
         
         self._build_ui()
         
@@ -73,10 +74,11 @@ class MachineSelectPopup(ctk.CTkToplevel):
         title.pack(pady=(12,8))
         
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=12)
+        header.pack(fill="x", padx=14)
  
-        ctk.CTkLabel(header, text="Maszyna", width=220, anchor="w").pack(side="left")
-        ctk.CTkLabel(header, text="Szt./zmianę", width=120, anchor="w").pack(side="left")        
+        ctk.CTkLabel(header, text="Maszyna", width=260, anchor="w").pack(side="left")
+        ctk.CTkLabel(header, text="Szt./zmianę", width=200, anchor="w").pack(side="left")
+        ctk.CTkLabel(header, text="Produkcja w weekend?", width=120, anchor="center").pack(side="left")       
         
         scroll = ctk.CTkScrollableFrame(self, width=580, height=280)
         scroll.pack(padx=12, pady=8, fill="both", expand=True)
@@ -101,6 +103,12 @@ class MachineSelectPopup(ctk.CTkToplevel):
             ctk.CTkLabel(row, text="szt./zmianę", text_color="#aaaaaa").pack(side="left", padx=8)
             
             var.trace_add("write", lambda *args: self._refresh_toggle_btn_text())
+            
+            # Dodajemy checkbox weekendowy:
+            w_var = tk.BooleanVar(value=False)
+            self.weekend_vars[machine] = w_var
+            w_cb = ctk.CTkCheckBox(row, text="", variable=w_var, width=40)
+            w_cb.pack(side="left", padx=(40, 0))
             
         # --- Dolny pasek ---
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -154,6 +162,9 @@ class MachineSelectPopup(ctk.CTkToplevel):
         if not selected:
             messagebox.showwarning("Brak wyboru", "Zaznacz przynajmniej jedną maszynę.")
             return
+        
+        # Tworzymy słownik: która z WYBRANYCH maszyn ma pracować w weekend
+        weekend_by_machine = {m: self.weekend_vars[m].get() for m in selected}        
 
         pps_by_machine = {}
         for m in selected:
@@ -185,7 +196,9 @@ class MachineSelectPopup(ctk.CTkToplevel):
 
         self.destroy()
         # --- Wysyłamy paczkę danych do Kontrolera! ---
-        self.on_confirm(selected, pps_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
+        self.on_confirm(selected, pps_by_machine, self.save_snapshot_var.get(), changes, should_save_config)
+        # Dodajemy weekend_by_machine jako trzeci argument (zmieniamy kolejność/ilość argumentów)
+        self.on_confirm(selected, pps_by_machine, weekend_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
 
     # # # # # # # # # # # # # # # # # # # # 
     # Popup dla przycisku 'O programie'   #
