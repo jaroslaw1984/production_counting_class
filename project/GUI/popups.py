@@ -195,8 +195,6 @@ class MachineSelectPopup(ctk.CTkToplevel):
             )
 
         self.destroy()
-        # --- Wysyłamy paczkę danych do Kontrolera! ---
-        self.on_confirm(selected, pps_by_machine, self.save_snapshot_var.get(), changes, should_save_config)
         # Dodajemy weekend_by_machine jako trzeci argument (zmieniamy kolejność/ilość argumentów)
         self.on_confirm(selected, pps_by_machine, weekend_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
 

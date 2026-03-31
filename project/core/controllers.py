@@ -43,7 +43,7 @@ class MainController:
             return
             
     # --- To ona odbiera kliknięcie "Przelicz" z popupu ---
-    def on_machines_selected(self, selected_machines, pps_by_machine, save_snapshot, changes, should_save_config):
+    def on_machines_selected(self, selected_machines, pps_by_machine, weekend_by_machine, save_snapshot, changes, should_save_config):
         print(f"Kontroler odebrał z popupu: Wybrano maszyn {len(selected_machines)}.")
         
         # Jeśli użytkownik kliknął "TAK" na pytanie o zapis zmian

@@ -162,7 +162,8 @@ class MainWindow:
     def show_machine_select_popup(self, machines: list[str], df_mc, on_confirm):
         MachineSelectPopup(self.root, machines, df_mc, on_confirm)
 
-    # UNIWERSALNA FUNKCJA POBIERANIA ŚCIEŻKI DO PLIKU
+    # --- Ten helper jest używany przy wczytywaniu danych z pliku Excel/CSV ---
+    # - otwiera dialog wyboru pliku i zwraca ścieżkę do niego (lub None, jeśli użytkownik anulował) ---
     def ask_for_file_path(self, title="Wybierz plik Excel/CSV") -> str | None:
         file_path = filedialog.askopenfilename(
             title=title,
