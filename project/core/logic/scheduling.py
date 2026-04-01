@@ -1,3 +1,4 @@
+import math
 from datetime import date, timedelta
 
 SHIFTS_PER_DAY = 3
@@ -62,3 +63,8 @@ def add_shifts(start_date: date, start_shift: int, shifts_count: int, include_we
                 s = 1
 
     return d, s
+
+def round_shifts_custom(shifts: float) -> int:
+    # --- Funkcja do zaokrąglania zmian według niestandardowych reguł (4.5 w dół, 4.7 w górę). ---
+    frac = shifts - math.floor(shifts)
+    return math.floor(shifts) if frac < 0.6 else math.ceil(shifts)
