@@ -112,7 +112,7 @@ def build_db_report_pieces(
         end_d, end_s = add_shifts(
             start_date=start_d,
             start_shift=start_shift,
-            shifts_count=shifts_rounded + shifts_count,
+            shifts_count=shifts_count,
             include_weekends=m_weekend,
         )
 
