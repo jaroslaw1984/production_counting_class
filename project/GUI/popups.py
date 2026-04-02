@@ -6,7 +6,7 @@ import os
 import subprocess
 import json
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from PIL import Image
 from pathlib import Path
 from tkinter import messagebox

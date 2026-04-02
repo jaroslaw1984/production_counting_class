@@ -1,10 +1,14 @@
+from project.core.logic.db_calc import build_db_report_pieces
 from project.config.workplace_config_provider import merge_db_and_csv_config
 from project.config.db_loader import fetch_available_machines
 from project.config.count_per_loader import update_count_by_shift
 from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
-from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines
+from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines
+from project.config.db_loader import fetch_orders_for_machines, normalize_db_df
 from pathlib import Path
+from datetime import datetime, date
+from project.config.paths import CONFING_PATH
 import pandas as pd
 import traceback
 
@@ -73,8 +77,14 @@ class MainController:
             self.state.machine_cfg = df_cfg
             self.state.machine_cfg_source = source
 
-        # TUTAJ w przyszłości wywołamy logikę przeliczania (calculate_from_db)
-        print("Kontroler: Zapisano konfigurację. Czekam na logikę obliczeń!")
+        self.view.show_schedule_popup(
+            lambda params: self._finish_db_calculation(
+                selected_machines,
+                pps_by_machine,
+                weekend_by_machine,
+                params,
+            )
+        )
         
     def handle_generate_report(self):
             print("Kontroler: Rozpoczynam generowanie raportu...")
@@ -280,6 +290,64 @@ class MainController:
                 print(f"Kontroler: Plik nie zawiera pełnego 'Smart Planu'. Ostrzeżenie: {e}")
                 return None        
     
+    def _finish_db_calculation(
+        self, 
+        selected_machines: list[str], 
+        pps_by_machine: dict[str, int], 
+        weekend_by_machine: dict[str, bool], 
+        params: dict
+        ):
+        """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie z wyborem daty i zmiany."""
+        # 1. Przetwarzamy parametry z drugiego popupu (Harmonogramu)
+        s_shift = params["start_shift"]
+        
+        if params["start_mode"] == "today":
+            s_date = date.today()
+        else:
+            # Data z popupu przychodzi jako string "YYYY-MM-DD"
+            s_date = datetime.strptime(params["start_date"], "%Y-%m-%d").date()
+
+        try:
+            # 1. Pobierasz surowe dane (niemieckie nazwy)
+            df_raw = fetch_orders_for_machines(selected_machines)
+            df_orders = normalize_db_df(df_raw)
+            
+            df_profiles = pd.read_csv(CONFING_PATH, sep=";", encoding="utf-8")
+            
+            if df_raw is None or df_raw.empty:
+                self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń.")
+                return   
+                     
+            # 2. Pobieramy zlecenia z bazy danych dla wybranych maszyn           
+            df_orders = normalize_db_df(df_raw)
+            print(f"DEBUG: Kolumny z bazy SQL: {df_orders.columns.tolist()}")
+            
+            if df_orders is None or df_orders.empty:
+                self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń dla tych maszyn.")
+                print(f"DEBUG: Kolumny w danych z bazy: {df_orders.columns.tolist()}")
+                return
+
+            # 3. Wywołujemy nasz silnik obliczeń z db_calc.py
+            # Przekazujemy: df zleceń, konfigurację maszyn ze stanu, parametry wybrane przez użytkownika
+            report_text = build_db_report_pieces(
+                df=df_orders,
+                df_cfg=df_profiles,
+                selected_machines=selected_machines,
+                pps_by_machine=pps_by_machine,
+                start_d=s_date,
+                start_shift=s_shift,
+                weekend_by_machine=weekend_by_machine
+            )
+
+            # 4. Wyświetlamy raport w głównym oknie
+            # Zakładam, że w MainView masz metodę set_text lub podobną
+            self.view.set_report_text(report_text)
+
+        except Exception as e:
+            self.view.show_error("Błąd obliczeń", f"Wystąpił problem podczas generowania raportu:\n{e}")
+            traceback.print_exc()
+        
+
     # # # # # # # # # # # # # # # # # # # # # # # #
     # NARZĘDZIA POMOCNICZE DO SZUKANIA KOLUMN     #
     # # # # # # # # # # # # # # # # # # # # # # # #
