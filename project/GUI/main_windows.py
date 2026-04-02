@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow
+from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup
 from project.GUI.popups import ReportParamsPopup
 from project.core.app_state import AppState
 
@@ -177,3 +177,15 @@ class MainWindow:
     
     def show_report_params_popup(self, machines: list[str], on_confirm):
         ReportParamsPopup(self.root, machines, on_confirm)
+        
+    def set_report_text(self, text):
+        self.text.configure(state="normal")
+        
+        self.text.delete("1.0", "end") # Czyścimy stare dane
+        self.text.insert("1.0", text)  # Wstawiamy nowy raport
+        
+        # Ponownie blokujemy, żeby użytkownik przypadkiem nic nie skasował
+        self.text.configure(state="disabled")
+        
+    def show_schedule_popup(self, on_confirm):
+        SchedulePopup(self.root, on_confirm)

@@ -821,13 +821,11 @@ class ReportParamsPopup(ctk.CTkToplevel):
         self._build_ui()
         
     def _build_ui(self):
-        # TODO 1: Skopiuj ze starego kodu tworzenie ComboBoxa dla wyboru maszyny (linia_var)
         ctk.CTkLabel(self, text="Wybierz maszynę (LINIA):").pack(anchor="w", padx=12, pady=(12, 4))
         self.linia_var = tk.StringVar(value=self.machines[0] if self.machines else "")
         self.linia_cb = ctk.CTkComboBox(self, values=self.machines, variable=self.linia_var, width=260)
         self.linia_cb.pack(anchor="w", padx=12, pady=(0, 10))        
-        
-        # TODO 2: Skopiuj tworzenie CTkEntry dla zlecenia startowego (start_var) z walidacją na cyfry
+
         ctk.CTkLabel(self, text="Startowe zlecenie nowej grupy:").pack(anchor="w", padx=12, pady=(0, 4))
         
         vcmd = self.register(self._only_digits)
@@ -843,7 +841,6 @@ class ReportParamsPopup(ctk.CTkToplevel):
         self.start_entry.pack(anchor="w", padx=12, pady=(0, 12))
         self.start_entry.focus_set() 
                
-        # TODO 3: Skopiuj tworzenie ramki z wyborem daty (day_mode_var: 'today'/'date' oraz day_str_var)
         # --- Dzień danych (SAP/DB) ---
         self.day_mode_var = tk.StringVar(value="today")  # today | date
         self.day_str_var = tk.StringVar(value=date.today().isoformat())
@@ -859,7 +856,6 @@ class ReportParamsPopup(ctk.CTkToplevel):
         day_entry.pack(side="left", padx=10)
         ctk.CTkLabel(day_frame, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left") 
                
-        # TODO 4: Stwórz przyciski "Anuluj" (self.destroy) i "OK" (wywołujący self._on_ok)
         btns = ctk.CTkFrame(self, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
 
@@ -902,3 +898,78 @@ class ReportParamsPopup(ctk.CTkToplevel):
     def _only_digits(self, new_value: str) -> bool:
         # pozwalamy na pusty (user jeszcze pisze)
         return new_value.isdigit() or new_value == ""    
+    
+class SchedulePopup(ctk.CTkToplevel):
+    def __init__(self, parent, on_confirm):
+        super().__init__(parent)
+        self.title("Parametry liczenia grupy - harmonogram")
+        self.resizable(False, False)
+        self.grab_set()
+        
+        # -- Przechowujemy callback do potwierdzenia, który zostanie wywołany z wynikiem po kliknięciu OK ---
+        self.on_confirm = on_confirm
+   
+        # -- zmiene dla trzymania stanu wyboru (zmiana, tryb startu, data startu) ---
+        self.shift_var = tk.IntVar(value=1)
+        self.start_mode_var = tk.StringVar(value="today")
+        self.start_day_var = tk.StringVar(value=date.today().isoformat())
+        
+        self._build_ui()
+        center_popup(parent, self)
+        
+    def _build_ui(self):
+        # --- WIERSZ 1: Zmiana ---
+        shift_frame = ctk.CTkFrame(self, fg_color="transparent")
+        shift_frame.pack(fill="x", padx=20, pady=(20, 10))
+        
+        ctk.CTkLabel(shift_frame, text="Start od zmiany:", width=120, anchor="w").pack(side="left")
+        ctk.CTkRadioButton(shift_frame, text="1", variable=self.shift_var, value=1).pack(side="left", padx=10)
+        ctk.CTkRadioButton(shift_frame, text="2", variable=self.shift_var, value=2).pack(side="left", padx=10)
+        ctk.CTkRadioButton(shift_frame, text="3", variable=self.shift_var, value=3).pack(side="left", padx=10)
+        
+        # --- WIERSZ 2: Tryb startu (dziś/data) ---
+        mode_frame = ctk.CTkFrame(self, fg_color="transparent")
+        mode_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(mode_frame, text="Start liczenia:", width=120, anchor="w").pack(side="left")
+        ctk.CTkRadioButton(mode_frame, text="od dziś", variable=self.start_mode_var, value="today").pack(side="left", padx=10)
+        ctk.CTkRadioButton(mode_frame, text="od daty", variable=self.start_mode_var, value="date").pack(side="left", padx=10)
+        
+        # --- WIERSZ 3: Pole daty ---
+        date_frame = ctk.CTkFrame(self, fg_color="transparent")
+        date_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(date_frame, text="Podaj datę:", width=120, anchor="w").pack(side="left")
+        self.date_entry = ctk.CTkEntry(date_frame, width=140, textvariable=self.start_day_var)
+        self.date_entry.pack(side="left", padx=10)
+        ctk.CTkLabel(date_frame, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left")
+        
+        # --- WIERSZ 4: Przyciski ---
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(10, 20))
+        
+        ctk.CTkButton(btn_frame, text="Anuluj", command=self.destroy, width=100).pack(side="right", padx=(10, 0))
+        ctk.CTkButton(btn_frame, text="OK", command=self._on_ok, width=100).pack(side="right")
+
+    def _on_ok(self):
+        mode = self.start_mode_var.get()
+        ds = self.start_day_var.get().strip()
+
+        # --- walidacja daty ---
+        if mode == "date":
+            try:
+                datetime.strptime(ds, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Błąd daty", "Podaj datę w formacie YYYY-MM-DD.")
+                return
+
+        # --- przygotowanie wyniku ---
+        result = {
+            "start_shift": self.shift_var.get(),
+            "start_mode": mode,
+            "start_date": ds
+        }
+        
+        # --- wywołanie callbacka (przekazanie wyniku do kontrolera) ---
+        self.on_confirm(result)
+        self.destroy()
