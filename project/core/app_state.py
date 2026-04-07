@@ -12,7 +12,7 @@ class AppState:
         
         self.table_frame = None
         
-        self.last_report_tetx: str = ""
+        self.last_report_text: str = ""
         self.last_report_data = None
         self.last_report_kind: Optional[str] = None
         

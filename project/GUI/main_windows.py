@@ -106,6 +106,27 @@ class MainWindow:
         self.text = ctk.CTkTextbox(self.right)
         self.text.grid(row=1, column=0, sticky="nsew")
         self.text.configure(state="disabled") 
+        
+        # --- pływający przycisk drukowania ---
+        self.print_btn = ctk.CTkButton(
+            self.right,
+            text="Drukuj raport",
+            command=self.hanlde_print_report,
+            width=120,
+            height=35
+        )   
+        
+    def set_print_button_visibility(self, visible: bool):
+        # --- pokazujemy lub chowamy przycisk drukowania w zależności od tego, czy mamy raport do wydrukowania ---
+        if visible:
+            # Używamy parametrów relatywnych, aby przycisk "pływał"
+            self.print_btn.place(relx=0.97, rely=0.96, anchor="se")
+        else:
+            self.print_btn.place_forget()
+            
+    def handle_clean_text(self):
+        self.state.last_report_kind = None
+        self.clear_report_view()
     
     def _get_theme_button_text(self) -> str:
         return "Jasny motyw" if ctk.get_appearance_mode() == "Dark" else "Ciemny motyw"
@@ -136,9 +157,22 @@ class MainWindow:
     def confirm_order(self):
         if hasattr(self, 'controller'):
             self.controller.handle_confirm_order()
+            
+    def hanlde_print_report(self):
+        if hasattr(self, 'controller'):
+            self.controller.handle_print_report()            
         
     def clean_text(self):
-        print("Czyszczenie tekstu...") # Tym zajmiemy się na samym końcu
+        if hasattr(self, 'controller'):
+            self.controller.handle_clean_text()
+            
+    def clear_report_view(self):
+        self.text.configure(state="normal") # Odblokuj
+        self.text.delete("1.0", "end") # Wyczyść
+        self.text.configure(state="disabled") # Zablokuj
+        
+        # --- chowanie przycisku drukowania
+        self.set_print_button_visibility(False)
         
     def help_btn(self):
         HelpWindow(self.root)

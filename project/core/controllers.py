@@ -112,6 +112,26 @@ class MainController:
             
             self.view.show_report_params_popup(machines, self.on_report_params_selected)
             
+    def handle_print_report(self):
+            # --- pobieramy aktualną treść raportu z widoku ---
+            report_to_print = self.view.text.get("1.0", "end").strip()
+            
+            if not report_to_print:
+                self.view.show_warning("Pusty raport", "Nie ma nic do wydrukowania!")
+                return
+                
+            print("Kontroler: Przygotowuję raport do druku...")
+            # Tutaj w przyszłości dodamy logikę wysyłania do systemowej drukarki
+            # lub generowania pliku PDF/TXT
+            self.view.show_warning("Drukowanie", "Funkcja wysyłania do drukarki zostanie dodana w kolejnym kroku.")
+    
+    def handle_clean_text(self):
+            print("Kontroler: Rozpoczynam czyszczenie raportu.")
+            # --- zmieniamy stan aplikacji ---
+            self.state.last_report_kind = None
+            # --- Rozkazujemy widokowi posprzątać ekran ---
+            self.view.clear_report_view()            
+            
     def on_report_params_selected(self, params: dict):
             """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
             print(f"Kontroler otrzymał parametry od użytkownika: {params}")
@@ -342,6 +362,9 @@ class MainController:
             # 4. Wyświetlamy raport w głównym oknie
             # Zakładam, że w MainView masz metodę set_text lub podobną
             self.view.set_report_text(report_text)
+            
+            self.state.last_report_kind = "db"
+            self.view.set_print_button_visibility(True)
 
         except Exception as e:
             self.view.show_error("Błąd obliczeń", f"Wystąpił problem podczas generowania raportu:\n{e}")
