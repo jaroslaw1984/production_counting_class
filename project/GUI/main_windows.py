@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup
 from project.GUI.popups import ReportParamsPopup
+from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
 
 class MainWindow:
@@ -114,7 +115,57 @@ class MainWindow:
             command=self.hanlde_print_report,
             width=120,
             height=35
-        )   
+        )
+        
+        # --- Budowa ekranu powitalnego na samym końcu ---
+        self._build_welcome_screen()
+        
+    def _build_welcome_screen(self):
+            # --- Tworzymy etykiety, jako "rodzica" podając główne pole tekstowe (self.text) ---
+            self.placeholder_logo = ctk.CTkLabel(
+                self.text,
+                text=ASCII_LOGO,
+                justify="center",
+                anchor="center",
+                font=ctk.CTkFont(family="Courier New", size=10)
+            )
+            self.placeholder_title = ctk.CTkLabel(
+                self.text,
+                text=HOME_SUBTITLE,
+                font=ctk.CTkFont(size=18, weight="bold"),
+                justify="center"
+            )
+            self.placeholder_desc = ctk.CTkLabel(
+                self.text,
+                text=HOME_DESC,
+                text_color="#9aa0a6",
+                font=ctk.CTkFont(size=13),
+                justify="center"
+            )
+            self.placeholder_ver = ctk.CTkLabel(
+                self.text,
+                text=HOME_VERSION,
+                text_color="#6f767d",
+                font=ctk.CTkFont(size=12),
+                justify="center"
+            )
+            
+            # Wywołujemy pokazanie na starcie
+            self.show_welcome_screen()
+
+    def show_welcome_screen(self):
+        # --- nakłada etykiety powitalne na pole tekstowe. ---
+        self.placeholder_logo.place(relx=0.5, rely=0.42, anchor="center")
+        self.placeholder_title.place(relx=0.5, rely=0.58, anchor="center")
+        self.placeholder_desc.place(relx=0.5, rely=0.63, anchor="center")
+        self.placeholder_ver.place(relx=0.5, rely=0.69, anchor="center")
+
+    def hide_welcome_screen(self):
+        # --- chowa etykiety powitalne (np. gdy pojawia się raport). ---
+        self.placeholder_logo.place_forget()
+        self.placeholder_title.place_forget()
+        self.placeholder_desc.place_forget()
+        self.placeholder_ver.place_forget()           
         
     def set_print_button_visibility(self, visible: bool):
         # --- pokazujemy lub chowamy przycisk drukowania w zależności od tego, czy mamy raport do wydrukowania ---
@@ -174,6 +225,9 @@ class MainWindow:
         # --- chowanie przycisku drukowania
         self.set_print_button_visibility(False)
         
+        # --- pokazanie ekranu powitalnego ---
+        self.show_welcome_screen()
+        
     def help_btn(self):
         HelpWindow(self.root)
         
@@ -216,6 +270,7 @@ class MainWindow:
         self.text.configure(state="normal")
         
         self.text.delete("1.0", "end") # Czyścimy stare dane
+        self.hide_welcome_screen() # Ukrywamy ekran powitalny, jeśli był widoczny
         self.text.insert("1.0", text)  # Wstawiamy nowy raport
         
         # Ponownie blokujemy, żeby użytkownik przypadkiem nic nie skasował
