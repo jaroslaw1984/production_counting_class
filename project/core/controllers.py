@@ -11,6 +11,9 @@ from datetime import datetime, date
 from project.config.paths import CONFING_PATH
 import pandas as pd
 import traceback
+import os
+import tempfile
+import re
 
 class MainController:
     def __init__(self, state, view):
@@ -18,8 +21,6 @@ class MainController:
         self.view = view
         
     def handle_load_machines(self):
-        # Testowanie połączenia
-        print("Kontroler odebrał sygnał z GUI: Rozpoczynam wczytywanie maszyn z DB/CSV...")
         # --- Pobranie konfiguracji (DB + CSV) ---
         df_cfg, source, missing = merge_db_and_csv_config(sync_missing_to_db=False)
         
@@ -46,7 +47,7 @@ class MainController:
             self.view.show_error("Błąd połączenia:", error_msg)
             return
             
-    # --- To ona odbiera kliknięcie "Przelicz" z popupu ---
+    # --- Obsługa wyboru maszyn ---
     def on_machines_selected(self, selected_machines, pps_by_machine, weekend_by_machine, save_snapshot, changes, should_save_config):
         print(f"Kontroler odebrał z popupu: Wybrano maszyn {len(selected_machines)}.")
         
@@ -85,7 +86,8 @@ class MainController:
                 params,
             )
         )
-        
+    
+    # --- Obsługa generowania raportu z pliku ---    
     def handle_generate_report(self):
             print("Kontroler: Rozpoczynam generowanie raportu...")
             
@@ -111,27 +113,49 @@ class MainController:
             machines = sorted({machine.strip() for machine in self.machines if str(machine).strip()})
             
             self.view.show_report_params_popup(machines, self.on_report_params_selected)
-            
-    def handle_print_report(self):
-            # --- pobieramy aktualną treść raportu z widoku ---
-            report_to_print = self.view.text.get("1.0", "end").strip()
-            
-            if not report_to_print:
-                self.view.show_warning("Pusty raport", "Nie ma nic do wydrukowania!")
-                return
-                
-            print("Kontroler: Przygotowuję raport do druku...")
-            # Tutaj w przyszłości dodamy logikę wysyłania do systemowej drukarki
-            # lub generowania pliku PDF/TXT
-            self.view.show_warning("Drukowanie", "Funkcja wysyłania do drukarki zostanie dodana w kolejnym kroku.")
     
+    # --- Obsługa drukowania raportu ---        
+    def handle_print_report(self):
+        kind = self.state.last_report_kind
+        report_text_full = self.view.text.get("1.0", "end").strip()
+
+        # --- Dwa tryby druku: 1) SAP -> drukuj docx, 2) DB -> drukuj skrót ---
+        if kind == "sap" and self.state.last_report_kind:
+            try:
+                docx_path = self.state.last_report_data.get("docx_path")
+                self._print_docx(docx_path)
+            except Exception as e:
+                self.view.show_error("Błąd druku", f"Nie udało się drukować DOCX:\n{e}")
+            return
+
+        # --- tryb DB lub inny: drukuj skrócony raport tekstowy ---
+        if kind == "db":
+            report_to_print = self._make_print_summary(report_text_full)
+        else:
+            # fallback: drukuj to co jest (np. inne tryby)
+            report_to_print = report_text_full
+
+        if not report_to_print.strip():
+            self.view.show_warning("Brak raportu", "Nie ma nic do wydrukowania.")
+            return
+
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as f:
+                f.write(report_to_print)
+                path = f.name
+            os.startfile(path, "print")
+        except Exception as e:
+            self.view.show_error("Błąd druku", f"Nie udało się uruchomić druku:\n{e}")
+    
+    # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):
             print("Kontroler: Rozpoczynam czyszczenie raportu.")
             # --- zmieniamy stan aplikacji ---
             self.state.last_report_kind = None
             # --- Rozkazujemy widokowi posprzątać ekran ---
             self.view.clear_report_view()            
-            
+    
+    # --- Główna funkcja obsługująca generowanie raportu po wybraniu parametrów przez użytkownika ---        
     def on_report_params_selected(self, params: dict):
             """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
             print(f"Kontroler otrzymał parametry od użytkownika: {params}")
@@ -177,7 +201,8 @@ class MainController:
             except Exception as e:
                 self.view.show_error("Błąd przetwarzania raportu", str(e))
                 return
-            
+    
+    # --- pomocniecze funkcje do obsługi raportu z pliku ---        
     def _load_hydra_file(self, file_path: str):
         """Główny menedżer wczytywania pliku. Czyta plik raz, a potem deleguje zadania."""
         try:
@@ -213,8 +238,8 @@ class MainController:
         except Exception as e:
             self.view.show_error("Błąd wczytywania pliku", str(e))   
     
+    # --- podwykonawcy do obsługi raportu z pliku ---
     def _extract_hydra_queue(self, df: pd.DataFrame) -> pd.DataFrame:
-            """Podwykonawca 1: Wyciąga tylko kolejność zleceń i profili z Hydry."""
             # --- Użyj detektorów, aby znaleźć dokładne nazwy kolumn w pliku ---
             order_col = self._find_column(df, ORDER_ALIASES)
             article_col = self._find_column(df, ARTICLE_ALIASES)
@@ -237,7 +262,8 @@ class MainController:
             out = out[(out["order_id"] != "") & (out["article"] != "") & (out["grundprofil"] != "")]
         
             return out.reset_index(drop=True)
-        
+    
+    # --- ta funkcja służy do wyciągania danych ze Smart Planu, ale jest bardziej elastyczna i odporna na brak kolumn. Jeśli plik nie ma kolumn potrzebnych do Smart Planu, zwraca None, a program będzie działał dalej w trybie awaryjnym (fallback). ---    
     def _extract_smart_plan(self, df: pd.DataFrame) -> pd.DataFrame | None:
             """Podwykonawca 2: Wyciąga metry, sztuki i status wykonania. Jeśli plik tego nie ma, zwraca None."""
             try:
@@ -310,6 +336,7 @@ class MainController:
                 print(f"Kontroler: Plik nie zawiera pełnego 'Smart Planu'. Ostrzeżenie: {e}")
                 return None        
     
+    # --- ta funkcja jest głównym menedżerem, który po otrzymaniu parametrów od użytkownika, pobiera dane z DB i generuje raport. ---
     def _finish_db_calculation(
         self, 
         selected_machines: list[str], 
@@ -470,3 +497,57 @@ class MainController:
             })
             
         return blocks
+    
+    # --- tworzy skrócony raport do druku z pełnego raportu tylko kluczowe informacje ---
+    def _make_print_summary(self, report_text: str) -> str:
+        if not report_text or not report_text.strip():
+            return ""
+
+        lines = report_text.splitlines()
+        out: list[str] = []
+        current_machine: str | None = None
+        current_end: str | None = None
+
+        for line in lines:
+            line = line.strip()
+
+            # nagłówek maszyny
+            m = re.match(r"^===\s*(WLO-[A-Z]\d{3})\s*===$", line)
+            if m:
+                # jeśli kończymy poprzednią maszynę
+                if current_machine:
+                    out.append(f"=== {current_machine} ===")
+                    out.append(current_end or "Przewidywana produkcja do: brak danych")
+                    out.append("")  # pusta linia między maszynami
+                current_machine = m.group(1)
+                current_end = None
+                continue
+
+            # linia końca produkcji
+            if line.startswith("Przewidywana produkcja do:"):
+                current_end = line
+
+            # jeśli maszyna nie ma danych
+            if line == "Brak danych." and current_machine:
+                current_end = "Przewidywana produkcja do: brak danych"
+
+        # domknij ostatnią maszynę
+        if current_machine:
+            out.append(f"=== {current_machine} ===")
+            out.append(current_end or "Przewidywana produkcja do: brak danych")
+            out.append("")
+
+        title = "---- Przewidywane zakończenie produkcji --- \n\n"
+        return title + "\n".join(out).rstrip() + "\n"  
+
+    def _open_docx(self, path: Path) -> None:
+        try:
+            os.startfile(str(path))
+        except Exception as e:
+            self.view.show_error("Błąd", f"Nie udało się otworzyć pliku:\n{e}")  
+            
+    def _print_docx(self, path: Path) -> None:
+        try:
+            os.startfile(str(path), "print")  # Windows
+        except Exception as e:
+            self.view.show_error("Błąd druku", f"Nie udało się uruchomić druku:{e}")        
