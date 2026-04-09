@@ -65,7 +65,7 @@ class MainController:
             self.state.machine_cfg = df_mc_df
             df_mc_df.to_csv(MACHINE_CONFIG_PATH, sep=";", index=False, encoding="utf-8") # Zapis do CSV
             
-            # Zapis do DB
+            # --- zapis do DB --- 
             if self.state.machine_cfg_source in ("db", "db+csv"):
                 try:
                     for m, _, new_val in changes:
@@ -73,7 +73,7 @@ class MainController:
                 except Exception as e:
                     self.view.show_warning("Uwaga", f"Zapisano do pliku CSV, ale błąd zapisu DB:\n{e}")
             
-            # Odświeżenie stanu
+            # --- odświeżenie stanu ---
             df_cfg, source, missing = merge_db_and_csv_config(sync_missing_to_db=False)
             self.state.machine_cfg = df_cfg
             self.state.machine_cfg_source = source
@@ -119,7 +119,7 @@ class MainController:
         kind = self.state.last_report_kind
         report_text_full = self.view.text.get("1.0", "end").strip()
 
-        # --- Dwa tryby druku: 1) SAP -> drukuj docx, 2) DB -> drukuj skrót ---
+        # --- dwa tryby druku: 1) SAP -> drukuj docx, 2) DB -> drukuj skrót ---
         if kind == "sap" and self.state.last_report_kind:
             try:
                 docx_path = self.state.last_report_data.get("docx_path")
@@ -132,7 +132,7 @@ class MainController:
         if kind == "db":
             report_to_print = self._make_print_summary(report_text_full)
         else:
-            # fallback: drukuj to co jest (np. inne tryby)
+            # --- fallback: drukuj to co jest (np. inne tryby) ---
             report_to_print = report_text_full
 
         if not report_to_print.strip():
