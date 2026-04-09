@@ -1,6 +1,6 @@
+from platform import machine
+
 import pandas as pd
-import math
-import re
 from datetime import date
 from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
 
@@ -11,14 +11,16 @@ def build_db_report_pieces(
     pps_by_machine: dict[str, int],
     start_d: date,
     start_shift: int,
-    weekend_by_machine: dict
+    saturday_by_machine: dict[str, bool],
+    sunday_by_machine: dict[str, bool]
 ) -> str:
     lines = []
     lines.append("---- Przewidywane zakończenie produkcji --- \n")
 
     for machine in selected_machines:
         df_one = df[df["workplace"] == machine].copy()
-        m_weekend = weekend_by_machine.get(machine, False)
+        m_sat = saturday_by_machine.get(machine, False)
+        m_sun = sunday_by_machine.get(machine, False)
         if df_one.empty:
             lines.append(f"=== {machine} ===")
             lines.append("Brak danych.\n")
@@ -113,7 +115,8 @@ def build_db_report_pieces(
             start_date=start_d,
             start_shift=start_shift,
             shifts_count=shifts_count,
-            include_weekends=m_weekend,
+            work_saturday=m_sat,   # <-- ZMIANA
+            work_sunday=m_sun      # <-- ZMIANA
         )
 
         lines.append(f"Szt./zmianę: {pps}")

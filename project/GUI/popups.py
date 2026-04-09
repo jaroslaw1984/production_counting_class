@@ -48,7 +48,7 @@ class MachineSelectPopup(ctk.CTkToplevel):
         # --- super() daje dostęp do metod klasy rodzica (czyli CTkToplevel) --- 
         super().__init__(parent)
         self.title("Wybór")
-        self.geometry("620x460")
+        self.geometry("640x460")
         self.resizable(False, False)
         
         self.transient(parent)
@@ -61,7 +61,8 @@ class MachineSelectPopup(ctk.CTkToplevel):
         
         self.vars_map: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy zaznaczona
         self.pps_vars: dict[str, tk.StringVar] = {} # mapa: maszyna -> wartość szt./zmianę (string, bo to jest tekst w Entry)
-        self.weekend_vars: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy to jest weekend (checkbox)
+        self.saturday_vars: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy to jest sobota (checkbox)
+        self.sunday_vars: dict[str, tk.BooleanVar] = {} # mapa: maszyna -> czy to jest niedziela (checkbox)
         self.default_pps: dict[str, int] = {} # mapa: maszyna -> domyślna wartość szt./zmianę (z DF, do porównania przy zapisie)
         self.save_snapshot_var = tk.BooleanVar(value=False) # czy zapisać terminy do snapshotu (checkbox w popupie)
         
@@ -78,7 +79,8 @@ class MachineSelectPopup(ctk.CTkToplevel):
  
         ctk.CTkLabel(header, text="Maszyna", width=260, anchor="w").pack(side="left")
         ctk.CTkLabel(header, text="Szt./zmianę", width=200, anchor="w").pack(side="left")
-        ctk.CTkLabel(header, text="Produkcja w weekend?", width=120, anchor="center").pack(side="left")       
+        ctk.CTkLabel(header, text="Sob.", width=80, anchor="center").pack(side="left")
+        ctk.CTkLabel(header, text="Niedz.", width=80, anchor="center").pack(side="left")         
         
         scroll = ctk.CTkScrollableFrame(self, width=580, height=280)
         scroll.pack(padx=12, pady=8, fill="both", expand=True)
@@ -104,11 +106,17 @@ class MachineSelectPopup(ctk.CTkToplevel):
             
             var.trace_add("write", lambda *args: self._refresh_toggle_btn_text())
             
-            # Dodajemy checkbox weekendowy:
-            w_var = tk.BooleanVar(value=False)
-            self.weekend_vars[machine] = w_var
-            w_cb = ctk.CTkCheckBox(row, text="", variable=w_var, width=40)
-            w_cb.pack(side="left", padx=(40, 0))
+            # --- dodajemy checkbox weekendowy sobota --- 
+            saturday_var = tk.BooleanVar(value=False)
+            self.saturday_vars[machine] = saturday_var
+            saturday_cb = ctk.CTkCheckBox(row, text="", variable=saturday_var, width=40)
+            saturday_cb.pack(side="left", padx=(40, 0))
+            
+            # --- dodajemy checkbox weekendowy niedziela ---
+            sunday_var = tk.BooleanVar(value=False)
+            self.sunday_vars[machine] = sunday_var
+            sunday_cb = ctk.CTkCheckBox(row, text="", variable=sunday_var, width=40)
+            sunday_cb.pack(side="left", padx=(40, 0))
             
         # --- Dolny pasek ---
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -163,8 +171,10 @@ class MachineSelectPopup(ctk.CTkToplevel):
             messagebox.showwarning("Brak wyboru", "Zaznacz przynajmniej jedną maszynę.")
             return
         
-        # Tworzymy słownik: która z WYBRANYCH maszyn ma pracować w weekend
-        weekend_by_machine = {m: self.weekend_vars[m].get() for m in selected}        
+        # --- tworzymy słownik: która z WYBRANYCH maszyn ma pracować w sobotę ---
+        saturday_by_machine = {m: self.saturday_vars[m].get() for m in selected}        
+        # --- tworzymy słownik: która z WYBRANYCH maszyn ma pracować w niedzielę
+        sunday_by_machine = {m: self.sunday_vars[m].get() for m in selected}        
 
         pps_by_machine = {}
         for m in selected:
@@ -195,8 +205,8 @@ class MachineSelectPopup(ctk.CTkToplevel):
             )
 
         self.destroy()
-        # Dodajemy weekend_by_machine jako trzeci argument (zmieniamy kolejność/ilość argumentów)
-        self.on_confirm(selected, pps_by_machine, weekend_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
+        # Dodajemy saturday_by_machine jako trzeci argument (zmieniamy kolejność/ilość argumentów)
+        self.on_confirm(selected, pps_by_machine, saturday_by_machine, sunday_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
 
     # # # # # # # # # # # # # # # # # # # # 
     # Popup dla przycisku 'O programie'   #

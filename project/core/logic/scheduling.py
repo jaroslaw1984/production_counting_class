@@ -12,58 +12,48 @@ def pl_weekday_name(d: date) -> str:
     names = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
     return names[d.weekday()]
 
-def shifts_per_day_for_date(d: date, include_weekends: bool) -> int:
-    # --- Zwraca liczbę dostępnych zmian dla danej daty. ---
-    
-    # 1. Pełen automat: Jeśli to polskie święto, maszyna nie pracuje (0 zmian)
+def shifts_per_day_for_date(d: date, work_saturday: bool, work_sunday: bool) -> int:
+    # 1. Pełen automat: polskie święto (0 zmian)
     if d in PL_HOLIDAYS:
         return 0
         
-    # 2. Weekendy: 1 zmiana (jeśli uwzględnione) lub 0 zmian
-    if d.weekday() >= 5:  # 5=sobota, 6=niedziela
-        return 1 if include_weekends else 0
+    # 2. Sobota (d.weekday() == 5)
+    if d.weekday() == 5:
+        return 1 if work_saturday else 0
         
-    # 3. Zwykły dzień roboczy: 3 zmiany
+    # 3. Niedziela (d.weekday() == 6)
+    if d.weekday() == 6:
+        return 1 if work_sunday else 0
+        
+    # 4. Zwykły dzień roboczy: 3 zmiany
     return SHIFTS_PER_DAY
 
-def next_valid_date(d: date, include_weekends: bool) -> date:
-    # --- Zastępuje stare next_workday. Przeskakuje do najbliższego dnia, 
-    # --- który ma więcej niż 0 zmian do przepracowania (pomija święta i ew. weekendy).
+def next_valid_date(d: date, work_saturday: bool, work_sunday: bool) -> date:
     d += timedelta(days=1)
-    while shifts_per_day_for_date(d, include_weekends) == 0:
+    while shifts_per_day_for_date(d, work_saturday, work_sunday) == 0:
         d += timedelta(days=1)
     return d
 
-def add_shifts(start_date: date, start_shift: int, shifts_count: int, include_weekends: bool) -> tuple[date, int]:
-    # --- Główny algorytm wyliczający datę i zmianę zakończenia. ---
+def add_shifts(start_date: date, start_shift: int, shifts_count: int, work_saturday: bool, work_sunday: bool) -> tuple[date, int]:
     if shifts_count <= 0:
         return start_date, start_shift
 
     d = start_date
-    
-    # --- Jeśli startujemy w dniu, który odgórnie ma 0 zmian (np. dzisiaj jest 1 Maja) 
-    # --- to od razu przeskakujemy na najbliższy prawidłowy dzień pracujący.
-    if shifts_per_day_for_date(d, include_weekends) == 0:
-        d = next_valid_date(d, include_weekends)
+    if shifts_per_day_for_date(d, work_saturday, work_sunday) == 0:
+        d = next_valid_date(d, work_saturday, work_sunday)
         start_shift = 1
 
-    # --- Ustalenie poprawnej zmiany startowej ---
-    max_shifts_today = shifts_per_day_for_date(d, include_weekends)
+    max_shifts_today = shifts_per_day_for_date(d, work_saturday, work_sunday)
     s = int(start_shift)
-    if s < 1: 
-        s = 1
-    if s > max_shifts_today:
-        s = 1 # Reset do 1, jeśli np. maszyna w weekend ma max 1 zmianę, a podano 3
+    if s < 1: s = 1
+    if s > max_shifts_today: s = 1
 
-    # --- Pętla "skacząca" o shifts_count - 1 razy ---
     moves = int(shifts_count) - 1
     for _ in range(max(0, moves)):
-        max_shifts_today = shifts_per_day_for_date(d, include_weekends)
-        
+        max_shifts_today = shifts_per_day_for_date(d, work_saturday, work_sunday)
         s += 1
         if s > max_shifts_today:
-            # Skończyły się zmiany w tym dniu -> Przejście na następny pracujący dzień
-            d = next_valid_date(d, include_weekends)
+            d = next_valid_date(d, work_saturday, work_sunday)
             s = 1
 
     return d, s

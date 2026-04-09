@@ -48,7 +48,7 @@ class MainController:
             return
             
     # --- Obsługa wyboru maszyn ---
-    def on_machines_selected(self, selected_machines, pps_by_machine, weekend_by_machine, save_snapshot, changes, should_save_config):
+    def on_machines_selected(self, selected_machines, pps_by_machine, saturday_by_machine, sunday_by_machine, save_snapshot, changes, should_save_config):
         print(f"Kontroler odebrał z popupu: Wybrano maszyn {len(selected_machines)}.")
         
         # Jeśli użytkownik kliknął "TAK" na pytanie o zapis zmian
@@ -82,7 +82,8 @@ class MainController:
             lambda params: self._finish_db_calculation(
                 selected_machines,
                 pps_by_machine,
-                weekend_by_machine,
+                saturday_by_machine,
+                sunday_by_machine,
                 params,
             )
         )
@@ -341,7 +342,8 @@ class MainController:
         self, 
         selected_machines: list[str], 
         pps_by_machine: dict[str, int], 
-        weekend_by_machine: dict[str, bool], 
+        saturday_by_machine: dict[str, bool], 
+        sunday_by_machine: dict[str, bool], 
         params: dict
         ):
         """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie z wyborem daty i zmiany."""
@@ -367,11 +369,9 @@ class MainController:
                      
             # 2. Pobieramy zlecenia z bazy danych dla wybranych maszyn           
             df_orders = normalize_db_df(df_raw)
-            print(f"DEBUG: Kolumny z bazy SQL: {df_orders.columns.tolist()}")
             
             if df_orders is None or df_orders.empty:
                 self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń dla tych maszyn.")
-                print(f"DEBUG: Kolumny w danych z bazy: {df_orders.columns.tolist()}")
                 return
 
             # 3. Wywołujemy nasz silnik obliczeń z db_calc.py
@@ -383,7 +383,8 @@ class MainController:
                 pps_by_machine=pps_by_machine,
                 start_d=s_date,
                 start_shift=s_shift,
-                weekend_by_machine=weekend_by_machine
+                saturday_by_machine=saturday_by_machine,
+                sunday_by_machine=sunday_by_machine,
             )
 
             # 4. Wyświetlamy raport w głównym oknie
