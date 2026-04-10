@@ -17,6 +17,7 @@ def build_db_report_pieces(
     lines = []
     lines.append("---- Przewidywane zakończenie produkcji --- \n")
 
+    # --- iteracja po maszynach ---
     for machine in selected_machines:
         df_one = df[df["workplace"] == machine].copy()
         m_sat = saturday_by_machine.get(machine, False)
@@ -26,7 +27,7 @@ def build_db_report_pieces(
             lines.append("Brak danych.\n")
             continue
 
-        # soll i gut w sztukach
+        # --- obliczenia produkcji ---
         target_value = pd.to_numeric(df_one["target_value_pcs"], errors="coerce").fillna(0)
         good_qty = pd.to_numeric(df_one["good_qty_pcs"], errors="coerce").fillna(0)
 
@@ -42,7 +43,7 @@ def build_db_report_pieces(
             lines.append("Szt./zmianę: BRAK / 0 (nie da się policzyć zmian)\n")
             continue
 
-        # --- ZBROJENIA (tak samo jak Excel) ---
+        # --- zbrojenia (tak samo jak Excel) ---
         # normalizacja kluczy
         df_one["profile"] = df_one["profile"].astype("string").str.strip()
         df_one["side"] = df_one["side"].astype("string").str.strip().str.zfill(4)
@@ -51,7 +52,7 @@ def build_db_report_pieces(
         cfg["profile"] = cfg["profile"].astype("string").str.strip()
         cfg["side"] = cfg["side"].astype("string").str.strip().str.zfill(4)
 
-        # merge setting_time
+        # --- scalenie - merge setting_time ---
         df_one = df_one.merge(
             cfg[["profile", "side", "setting_time"]],
             on=["profile", "side"],
@@ -61,23 +62,23 @@ def build_db_report_pieces(
         missing = df_one[df_one["setting_time"].isna()]
         if not missing.empty:
             sample = missing[["profile", "side"]].drop_duplicates().head(15)
-            lines.append("⚠️ Brak setting_time w profile_config.csv dla (profile, side):")
+            lines.append("⚠️ Brak czasu zbrojenia w pliku profile_config.csv dla kluczy 'profile, side':")
             lines.append(sample.to_string(index=False))
             # i dopiero wtedy fillna(0) żeby program nie padł            
 
         df_one["setting_time"] = pd.to_numeric(df_one["setting_time"], errors="coerce").fillna(0).astype(int)
         
         # --- ZBROJENIA: liczymy ZMIANY w kolejności (bloki), nie unikalne wartości ---
-        # ważne: DB czasem nie jest posortowane – sortuj po zleceniu (jeśli masz)
+        # --- ważne: DB czasem nie jest posortowane – sortuj po zleceniu (jeśli masz) ---
         if "order_id" in df_one.columns:
-            # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej
+            # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej ---
             df_one["_order_num"] = (
                 df_one["order_id"].astype("string").str.replace(r"\.0$", "", regex=True).str.lstrip("0")
             )
             df_one["_order_num"] = pd.to_numeric(df_one["_order_num"], errors="coerce")
             df_one = df_one.sort_values(["_order_num"], kind="stable").drop(columns=["_order_num"])
 
-        # klucz zbrojenia – zwykle profil+strona; jeśli strona zawsze 0020, i tak zadziała
+        # --- klucz zbrojenia – zwykle profil+strona; jeśli strona zawsze 0020, i tak zadziała ---
         keys = list(zip(df_one["profile"].astype("string").str.strip(),
                         df_one["side"].astype("string").str.strip().str.zfill(4)))
 
@@ -87,7 +88,7 @@ def build_db_report_pieces(
         prev_key = None
         for key, st in zip(keys, df_one["setting_time"].tolist()):
             if prev_key is None:
-                # start – zakładamy, że pierwsze ustawienie już jest na maszynie (nie liczymy jako zbrojenie)
+                # --- start – zakładamy, że pierwsze ustawienie już jest na maszynie (nie liczymy jako zbrojenie) ---
                 prev_key = key
                 continue
 
@@ -100,7 +101,7 @@ def build_db_report_pieces(
 
         setup_shifts = setup_min / (8 * 60)            
 
-        # --- ZMIANY: produkcja + zbrojenia ---
+        # --- zmiany: produkcja + zbrojenia ---
         prod_shifts = total_remaining / pps if total_remaining > 0 else 0.0
         shifts_exact = prod_shifts + setup_shifts
         shifts_rounded = round_shifts_custom(shifts_exact)
@@ -110,15 +111,16 @@ def build_db_report_pieces(
         shifts_exact = prod_shifts + setup_shifts + buffer_shifts
         shifts_count = round_shifts_custom(shifts_exact) 
 
-        # koniec produkcji dla tej maszyny
+        # --- koniec produkcji dla tej maszyny ---
         end_d, end_s = add_shifts(
             start_date=start_d,
             start_shift=start_shift,
             shifts_count=shifts_count,
-            work_saturday=m_sat,   # <-- ZMIANA
-            work_sunday=m_sun      # <-- ZMIANA
+            work_saturday=m_sat,   
+            work_sunday=m_sun    
         )
 
+        # --- raport dla tej maszyny ---
         lines.append(f"Szt./zmianę: {pps}")
         lines.append(f"Ilość zbrojeń profili: {setup_count}")
         lines.append(f"Czas zbrojeń: {setup_min:.0f} min")
