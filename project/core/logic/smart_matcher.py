@@ -22,17 +22,33 @@ class SmartPlanMatcher:
         self.missing_0022_articles = []
         
     def run_matching(self) -> dict:
-        # 1. Walidacja stron 0022 (szukamy braków)
-        self._validate_double_sided_orders()
-        
-        # 2. Budowa bloków z Hydry
-        self._build_blocks()
-        
-        # 3. Liczenie wymaganych metrów dla każdego bloku na podstawie planu
-        return {
-            "blocks_count": len(self.blocks),
-            "missing_articles": self.missing_0022_articles
-        }
+            """
+            Główny silnik. Odpala po kolei kroki algorytmu.
+            Zwraca słownik z gotowymi danymi dla kontrolera.
+            """
+            # 1. Walidacja stron 0022 (szukamy braków)
+            self._validate_double_sided_orders()
+            
+            # 2. Budowa bloków z Hydry
+            self._build_blocks()
+            
+            # 3. Jeśli mamy plan, liczymy metry z planu
+            if self.use_smart_matching:
+                self._calc_required_m()
+                
+            # 4. Przygotowanie danych z SAP
+            self._prepare_sap_data()
+                
+            # 5. Główna alokacja / Dobieranie pozycji (SAP -> Hydra)
+            lines, rows = self._allocate_sap_items()
+            
+            # Zwracamy czysty wynik do Kontrolera
+            return {
+                "blocks": self.blocks,  # Użyteczne jeśli chcemy wypisać nagłówek bloków
+                "lines": lines,
+                "rows": rows,
+                "missing_articles": self.missing_0022_articles
+            }
 
     # # # # # # # # # #
     # METODY PRYWATNE #
@@ -253,3 +269,191 @@ class SmartPlanMatcher:
             })
 
         self.sap_rows_by_index = sap_rows
+        
+    def _pick_item_without_required(self, items: list[dict], remaining_occurrences: int) -> dict:
+            """
+            Fallback kiedy nie mamy required_m:
+            Dobiera pozycję najbliższą średniej ilości na pozostały blok.
+            """
+            if not items:
+                return {}
+
+            remaining_occurrences = max(int(remaining_occurrences), 1)
+            total_left = sum(float(it.get("qty", 0.0) or 0.0) for it in items)
+            avg = total_left / remaining_occurrences
+
+            def q(it):
+                return float(it.get("qty", 0.0) or 0.0)
+
+            if remaining_occurrences > 1:
+                best = max(items, key=lambda it: q(it))
+            else:
+                best = min(items, key=lambda it: (abs(q(it) - avg), -q(it)))
+                
+            items.remove(best)
+            return best
+
+    def _pick_items_best_fit(
+        self, items: list[dict], required_m: float, 
+        max_over_ratio: float = 3.0, rel_tol: float = 0.20, abs_tol: float = 10.0
+    ) -> list[dict]:
+        """
+        Dobiera pozycje z SAP dla konkretnego wymaganego metrażu.
+        """
+        if not items:
+            return []
+        req = float(required_m or 0.0)
+        if req <= 0:
+            return []
+
+        def q(it): 
+            return float(it.get("qty", 0.0) or 0.0)
+
+        bigger = [it for it in items if q(it) >= req]
+        if bigger:
+            reasonable = [it for it in bigger if q(it) <= req * max_over_ratio]
+            candidates = reasonable if reasonable else bigger
+
+            tol = max(req * rel_tol, abs_tol)
+            near = [it for it in candidates if (q(it) - req) <= tol]
+
+            best_pool = near if near else candidates
+            best = min(best_pool, key=lambda it: (q(it) - req, q(it)))
+            items.remove(best)
+            return [best]
+
+        picked = []
+        total = 0.0
+        for it in sorted(items, key=q, reverse=True):
+            picked.append(it)
+            total += q(it)
+            items.remove(it)
+            if total >= req:
+                break
+        return picked
+
+    def _pre_allocate_fallback(self) -> None:
+        """
+        Przydziela pozycje z SAP do bloków Hydry z pominięciem Smart Matchingu,
+        opierając się na sekwencji (Sequenz) lub sortowaniu malejącym.
+        """
+        if self.use_smart_matching:
+            return
+
+        block_indices_by_gp = defaultdict(list)
+        for block_no, b in enumerate(self.blocks):
+            key = (b["gp"], b["side"])
+            block_indices_by_gp[key].append(block_no)
+
+        for (gp, side), block_nos in block_indices_by_gp.items():
+            if len(block_nos) > 1:
+                items = self.sap_rows_by_index.get(gp, [])
+                if not items:
+                    continue
+                has_seq = any(it.get("seq") is not None for it in items)
+                
+                if has_seq:
+                    items_sorted = sorted(items, key=lambda it: (it.get("seq") or 0))
+                    for bn, sap_item in zip(block_nos, items_sorted):
+                        self.allocated_items[bn] = sap_item
+                        if sap_item in self.sap_rows_by_index.get(gp, []):
+                            self.sap_rows_by_index[gp].remove(sap_item)
+                else:
+                    items_sorted = sorted(items, key=lambda it: float(it.get("qty", 0.0) or 0.0), reverse=True)
+                    for bn, sap_item in zip(reversed(block_nos), items_sorted):
+                        self.allocated_items[bn] = sap_item
+                        if sap_item in self.sap_rows_by_index.get(gp, []):
+                            self.sap_rows_by_index[gp].remove(sap_item)
+
+    def _allocate_sap_items(self) -> tuple[list[str], list[dict]]:
+        """
+        Główna pętla przydzielająca. Łączy zebrane wcześniej dane.
+        Zwraca gotowe linie do podglądu tekstowego oraz słowniki (wiersze) do DOCX.
+        """
+        # --- najpierw spróbujmy pre-alokacji (zadziała tylko gdy nie ma Smart Matchingu) --- 
+        self._pre_allocate_fallback()
+
+        rows = []
+        lp = 1
+        
+        total_blocks_by_gp = Counter(b["gp"] for b in self.blocks)
+        used_blocks_by_gp = defaultdict(int)
+
+        for block_no, b in enumerate(self.blocks):
+            gp = b["gp"]
+            items = self.sap_rows_by_index.get(gp, [])
+            items.sort(key=lambda it: float(it.get("qty", 0.0) or 0.0))
+
+            required_m = self.required_by_block.get(block_no)
+            total_qty = 0.0
+            total_szt = 0
+            jm = "M"
+
+            # --- sprawdzamy czy blok dostał już przypisanie w fallbacku ---
+            if block_no in self.allocated_items:
+                picked_item = self.allocated_items[block_no]
+                total_qty = float(picked_item.get("qty", 0.0) or 0.0)
+                total_szt = int(picked_item.get("szt", 0) or 0)
+                jm = picked_item.get("jm", "M")
+            else:
+                if not items:
+                    continue
+                jm = items[0]["jm"] if items else "M"
+
+                if required_m is not None and required_m > 0:
+                    # Smart Matching
+                    picked = self._pick_items_best_fit(items, required_m, max_over_ratio=3.0, rel_tol=0.25, abs_tol=15.0)
+                    for it in picked:
+                        total_qty += float(it.get("qty", 0.0))
+                        total_szt += int(it.get("szt", 0))
+                else:
+                    # --- fallback (kiedy required_m jest None lub 0) ---
+                    remaining_occ = total_blocks_by_gp[gp] - used_blocks_by_gp[gp]
+                    it = self._pick_item_without_required(items, remaining_occ)
+                    if not it:
+                        continue
+                    total_qty += float(it.get("qty", 0.0))
+                    total_szt += int(it.get("szt", 0))
+
+            rows.append({
+                "lp": lp,
+                "index": gp,
+                "qty": float(total_qty),
+                "jm": jm,
+                "szt": int(total_szt),
+                "pallets": "",
+            })
+
+            used_blocks_by_gp[gp] += 1
+            lp += 1
+
+        # --- DOMKNIĘCIE: resztki SAP dla indeksów, które zostały niewykorzystane ---
+        for idx, leftovers in self.sap_rows_by_index.items():
+            if not leftovers:
+                continue
+
+            extra_qty = sum(float(it.get("qty", 0.0) or 0.0) for it in leftovers)
+            extra_szt = sum(int(it.get("szt", 0) or 0) for it in leftovers)
+
+            if extra_qty <= 0 and extra_szt <= 0:
+                continue
+
+            # --- znajdź ostatni wiersz tego indeksu w raporcie ---
+            last_pos = None
+            for i in range(len(rows) - 1, -1, -1):
+                if rows[i]["index"] == idx:
+                    last_pos = i
+                    break
+
+            if last_pos is not None:
+                rows[last_pos]["qty"] += extra_qty
+                rows[last_pos]["szt"] += extra_szt
+
+            leftovers.clear()
+
+        # --- budowa stringów na potrzeby podglądu ---
+        lines = []
+        for r in rows:
+            lines.append(f'{r["lp"]:>2}. {r["index"]:<18}  {float(r["qty"]):>10.1f} {r["jm"]:<2}  {int(r["szt"]):>6}')
+
+        return lines, rows
