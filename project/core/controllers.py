@@ -6,6 +6,7 @@ from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
 from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines
 from project.config.db_loader import fetch_orders_for_machines, normalize_db_df
+from project.core.logic.docx_export import export_report_docx
 from pathlib import Path
 from datetime import datetime, date
 from project.config.paths import CONFING_PATH
