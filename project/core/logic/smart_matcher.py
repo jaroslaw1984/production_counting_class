@@ -3,7 +3,7 @@ import re
 from collections import Counter, defaultdict
 
 class SmartPlanMatcher:
-    # Wzorce artykułów, dla których brak strony 0022 jest poprawny (ignorujemy je)
+    # --- wzorce artykułów, dla których brak strony 0022 jest poprawny (ignorujemy je) ---
     ONLY_0021_PATTERNS = [
         r"-[123]00",  # np. -100..., -200..., -300... => tylko 0021
     ]
@@ -28,8 +28,7 @@ class SmartPlanMatcher:
         # 2. Budowa bloków z Hydry
         self._build_blocks()
         
-        # Na razie zwracamy testowy słownik, żeby nie powodować błędów,
-        # dopóki nie napiszemy reszty metod.
+        # 3. Liczenie wymaganych metrów dla każdego bloku na podstawie planu
         return {
             "blocks_count": len(self.blocks),
             "missing_articles": self.missing_0022_articles
@@ -55,7 +54,7 @@ class SmartPlanMatcher:
             .str.zfill(4)
         )
 
-        # Interesują nas tylko 0021 i 0022
+        # --- interesują nas tylko 0021 i 0022 ---
         tmp = tmp[tmp["side"].isin({"0021", "0022"})].copy()
         if tmp.empty:
             return
@@ -65,7 +64,7 @@ class SmartPlanMatcher:
         for article, sides in sides_by_article.items():
             a = str(article)
 
-            # IGNORUJ artykuły, które z definicji nie mają 0022
+            # --- IGNORUJ artykuły, które z definicji nie mają 0022 ---
             if any(re.search(pat, a) for pat in self.ONLY_0021_PATTERNS):
                 continue
 
@@ -123,3 +122,134 @@ class SmartPlanMatcher:
             })
             
         self.blocks = blocks
+        
+    def _calc_required_m(self) -> None:
+        """
+        Liczy metry do zrobienia dla każdego bloku z Hydry na podstawie wczytanego planu.
+        Wynik zapisuje w self.required_by_block.
+        """
+        # --- jeśli nie ma planu, po prostu pomijamy ten krok ---
+        if not self.use_smart_matching or self.df_plan is None or self.df_plan.empty:
+            return
+
+        dfx = self.df_plan.copy()
+
+        profile_col = "profile_full" if "profile_full" in dfx.columns else "profile"
+
+        # --- baza profilu z planu (np. "HO8030") ---
+        dfx["index_base"] = (
+            dfx[profile_col]
+            .astype("string")
+            .str.strip()
+            .str.split("-", n=1)
+            .str[0]
+        )
+
+        dfx["order_id"] = self._normalize_order_id_series(dfx["order_id"])
+
+        # --- normalizujemy stronę w planie produkcji ---
+        if "side" in dfx.columns:
+            dfx["side_norm"] = (
+                dfx["side"].astype("string").str.strip()
+                .str.replace(r"\.0$", "", regex=True)
+                .str.zfill(4)
+            )
+        else:
+            dfx["side_norm"] = "0021"
+
+        target_p = pd.to_numeric(dfx["target_value_p"], errors="coerce").fillna(0.0)
+
+        if "good_qty_p" in dfx.columns:
+            good_p = pd.to_numeric(dfx["good_qty_p"], errors="coerce").fillna(0.0)
+        else:
+            good_p = pd.Series(0.0, index=dfx.index)
+
+        unit = dfx["unit_p"].astype("string").str.strip().str.upper()
+
+        # --- liczenie brakującej produkcji ---
+        remaining_p = target_p.copy()
+        mask_started = good_p > 0
+        remaining_p.loc[mask_started] = (target_p - good_p).clip(lower=0.0)
+
+        # --- upewniamy się, że to metry ---
+        dfx["_m"] = remaining_p.where(unit == "M", 0.0)
+
+        out = {}
+
+        for i, b in enumerate(self.blocks):
+            gp = str(b["gp"]).strip()
+            gp_base = gp.split("-", 1)[0]
+            orders = b.get("order_ids") or set()
+            b_side = str(b.get("side", "")).strip().zfill(4)
+
+            if not orders:
+                out[i] = 0.0
+                continue
+
+            # --- twardo filtrowanie po bazie, zleceniach i stronie ---
+            m = dfx.loc[
+                (dfx["index_base"] == gp_base) & 
+                (dfx["order_id"].isin(orders)) &
+                (dfx["side_norm"] == b_side),
+                "_m"
+            ].sum()
+
+            out[i] = float(m)
+
+        self.required_by_block = out
+
+    def _prepare_sap_data(self) -> None:
+        """
+        Przetwarza surowy DataFrame z SAP (self.df_sap) na czysty, zoptymalizowany pod algorytm słownik.
+        Wynik zapisuje w self.sap_rows_by_index.
+        """
+        if self.df_sap is None or self.df_sap.empty:
+            return
+
+        sap_rows: dict[str, list[dict]] = {}
+
+        for _, r in self.df_sap.iterrows():
+            idx = str(r.get("INDEKS", "")).strip()
+            if not idx:
+                continue
+
+            # --- parsowanie ilości (ochrona przed przecinkami i NaN) ---
+            qty = r.get("ILOSC", 0)
+            if isinstance(qty, str):
+                qty = qty.replace(",", ".")
+            try:
+                qty = float(qty)
+            except Exception:
+                qty = 0.0
+
+            # --- parsowanie sztuk ---
+            szt = r.get("IL_SZT", 0)
+            try:
+                szt = int(szt)
+            except Exception:
+                szt = 0
+
+            # --- jednostka ---
+            jm = str(r.get("JM", "M")).strip()
+
+            # --- detekcja sekwencji (Sequenz) - z szukaniem różnych wariantów nazwy kolumny ---
+            seq = None
+            for cand in ("Sequenz", "sequenz", "sequence", "Sequance", "Sequenc", "sequenc"):
+                if cand in self.df_sap.columns:
+                    seq_raw = r.get(cand)
+                    try:
+                        if seq_raw is not None:
+                            seq = int(float(str(seq_raw).replace(",", ".")))
+                    except Exception:
+                        pass
+                    break
+
+            # --- dodajemy gotowy, sformatowany słownik dla danego indeksu ---
+            sap_rows.setdefault(idx, []).append({
+                "qty": qty,
+                "szt": szt,
+                "jm": jm,
+                "seq": seq,
+            })
+
+        self.sap_rows_by_index = sap_rows
