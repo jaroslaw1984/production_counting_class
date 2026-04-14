@@ -21,6 +21,9 @@ class SmartPlanMatcher:
         self.allocated_items = {}
         self.missing_0022_articles = []
         
+        self.sap_user = ""
+        self.sap_date = ""
+        
     def run_matching(self) -> dict:
             """
             Główny silnik. Odpala po kolei kroki algorytmu.
@@ -44,10 +47,12 @@ class SmartPlanMatcher:
             
             # Zwracamy czysty wynik do Kontrolera
             return {
-                "blocks": self.blocks,  # Użyteczne jeśli chcemy wypisać nagłówek bloków
+                "blocks": self.blocks,
                 "lines": lines,
                 "rows": rows,
-                "missing_articles": self.missing_0022_articles
+                "missing_articles": self.missing_0022_articles,
+                "sap_user": self.sap_user,
+                "sap_date": self.sap_date  
             }
 
     # # # # # # # # # #
@@ -228,6 +233,17 @@ class SmartPlanMatcher:
             idx = str(r.get("INDEKS", "")).strip()
             if not idx:
                 continue
+                
+            # --- wyciąganie użytkownika i daty z pierwszego napotkanego wiersza ---
+            if not self.sap_user and "USER" in self.df_sap.columns:
+                u = r.get("USER")
+                if pd.notna(u) and str(u).strip():
+                    self.sap_user = str(u).strip()
+                    
+            if not self.sap_date and "DATA" in self.df_sap.columns:
+                d = r.get("DATA")
+                if pd.notna(d) and str(d).strip():
+                    self.sap_date = str(d).strip()
 
             # --- parsowanie ilości (ochrona przed przecinkami i NaN) ---
             qty = r.get("ILOSC", 0)

@@ -16,6 +16,7 @@ import traceback
 import os
 import tempfile
 import re
+import json
 
 class MainController:
     def __init__(self, state, view):
@@ -117,25 +118,25 @@ class MainController:
             
             self.view.show_report_params_popup(machines, self.on_report_params_selected)
     
-    # --- Obsługa drukowania raportu ---        
+    # --- Obsługa drukowania raportu ---               
     def handle_print_report(self):
         kind = self.state.last_report_kind
-        report_text_full = self.view.text.get("1.0", "end").strip()
 
-        # --- dwa tryby druku: 1) SAP -> drukuj docx, 2) DB -> drukuj skrót ---
-        if kind == "sap" and self.state.last_report_kind:
+        # 1) Tryb SAP -> generujemy plik DOCX w locie z szablonu i wysyłamy do drukarki
+        if kind == "sap" and self.state.last_report_data:
             try:
-                docx_path = self.state.last_report_data.get("docx_path")
+                # export_report_docx jest już u Ciebie poprawnie zaimportowane na górze pliku!
+                docx_path = export_report_docx(self.state.last_report_data)
                 self._print_docx(docx_path)
             except Exception as e:
-                self.view.show_error("Błąd druku", f"Nie udało się drukować DOCX:\n{e}")
+                self.view.show_error("Błąd druku", f"Nie udało się wydrukować DOCX:\n{e}")
             return
 
-        # --- tryb DB lub inny: drukuj skrócony raport tekstowy ---
+        # 2) Tryb DB lub inny -> drukujemy skrócony tekst
+        report_text_full = self.view.text.get("1.0", "end").strip()
         if kind == "db":
             report_to_print = self._make_print_summary(report_text_full)
         else:
-            # --- fallback: drukuj to co jest (np. inne tryby) ---
             report_to_print = report_text_full
 
         if not report_to_print.strip():
@@ -153,13 +154,14 @@ class MainController:
     # --- Obsługa edycji raportu DOCX ---        
     def handle_edit_report(self):
         kind = self.state.last_report_kind
+        
+        # Jeśli mamy raport SAP, generujemy plik DOCX i otwieramy go w programie Word
         if kind == "sap" and self.state.last_report_data:
             try:
-                # Generujemy plik w tle i otwieramy go w Wordzie
                 docx_path = export_report_docx(self.state.last_report_data)
                 self._open_docx(docx_path)
             except Exception as e:
-                self.view.show_error("Błąd edycji", f"Nie udało się przygotować/otworzyć DOCX:\n{e}")
+                self.view.show_error("Błąd edycji", f"Nie udało się wygenerować/otworzyć DOCX:\n{e}")
                 traceback.print_exc()
         else:
             self.view.show_warning("Brak raportu", "Najpierw wygeneruj raport SAP.")
@@ -231,11 +233,15 @@ class MainController:
                 print(f'{i+1}. {b["gp"]} ({b["side"]})')
             print("=================================\n")
             
-            # --- Przekazanie DANYCH do Widoku zamiast surowego tekstu ---
-            # Widok sam zajmie się ładnym wyrenderowaniem tabeli
-            self.view.render_sap_report_table(linia_value, day_value, rows)
+            # --- DODANE: Pobranie brakujących danych ---
+            sap_user = wynik.get("sap_user", "")
+            shift_info = self._get_shift_info_from_snapshot(linia_value)
+
+            # --- Przekazanie DANYCH do Widoku ---
+            # Przekazujemy również sap_user, aby pokazał się w GUI!
+            self.view.render_sap_report_table(linia_value, day_value, rows, sap_user)
             
-            # (Opcjonalnie) aktualizacja stanu, jeśli potrzebujesz tego do innych celów
+            # (Opcjonalnie) aktualizacja stanu
             self.state.last_report_kind = "sap"
             self.view.set_print_button_visibility(True)
 
@@ -245,9 +251,9 @@ class MainController:
 
             # --- Zapis danych do stanu (potrzebne do druku DOCX) ---
             self.state.last_report_data = {
-                "shift_info": "Brak danych o zmianie (do uzupełnienia)", 
+                "shift_info": shift_info, 
                 "report_date": str(date.today()),
-                "user": "", # Możesz dodać logikę wyciągania usera z SAP
+                "user": sap_user, 
                 "line": linia_value,
                 "machine": machine_name,
                 "rows": [
@@ -621,3 +627,32 @@ class MainController:
             os.startfile(str(path), "print")  # Windows
         except Exception as e:
             self.view.show_error("Błąd druku", f"Nie udało się uruchomić druku:{e}")        
+    
+    def _get_shift_info_from_snapshot(self, linia: str) -> str:
+        """Pobiera informację o dacie zakończenia dla danej linii z pliku snapshot.json."""
+        try:
+            # Domyślna ścieżka %APPDATA%\ProductionCounter
+            base = Path(os.getenv("APPDATA") or Path.home())
+            snap_path = base / "ProductionCounter" / "production_snapshot.json"
+            
+            if not snap_path.exists():
+                return f"{date.today().strftime('%d.%m.%Y')} (zmiana 1) - brak zapisu"
+            
+            with open(snap_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            # Sprawdzamy czy snapshot jest z dzisiaj
+            if data.get("snapshot_date") != date.today().isoformat():
+                return f"{date.today().strftime('%d.%m.%Y')} (zmiana 1) - stary zapis z {data.get('snapshot_date')}"
+                
+            end_by_machine = data.get("end_by_machine", {})
+            shift_line = end_by_machine.get(linia)
+            
+            if shift_line:
+                # Obcinamy tekst "Przewidywana produkcja do:" z początku stringa
+                return shift_line.replace("Przewidywana produkcja do:", "").strip()
+                
+        except Exception as e:
+            print(f"Błąd odczytu snapshotu: {e}")
+            
+        return f"{date.today().strftime('%d.%m.%Y')} (zmiana 1) - błąd odczytu"

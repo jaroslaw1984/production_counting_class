@@ -310,89 +310,95 @@ class MainWindow:
     def show_schedule_popup(self, on_confirm):
         SchedulePopup(self.root, on_confirm)
         
-    def render_sap_report_table(self, linia: str, day: str, rows: list[dict]):
-            """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
+    def render_sap_report_table(self, linia: str, day: str, rows: list[dict], user: str = ""):
+        """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
+        
+        if hasattr(self, "text") and self.text:
+            self.text.grid_remove() 
+        self.hide_welcome_screen()
             
-            if hasattr(self, "text") and self.text:
-                self.text.grid_remove() 
-            self.hide_welcome_screen()
-                
-            if hasattr(self, "table_frame") and self.table_frame:
-                self.table_frame.destroy()
+        if hasattr(self, "table_frame") and self.table_frame:
+            self.table_frame.destroy()
 
-            self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
-            self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
-            # --- NAGŁÓWEK RAPORTU ---
-            header_lbl = ctk.CTkLabel(
-                self.table_frame, 
-                text="RAPORT DOTYCZĄCY ZAPOTRZEBOWANIA POD OKLEJANIE", 
-                font=ctk.CTkFont(size=18, weight="bold")
+        # --- NAGŁÓWEK RAPORTU ---
+        header_lbl = ctk.CTkLabel(
+            self.table_frame, 
+            text="RAPORT DOTYCZĄCY ZAPOTRZEBOWANIA POD OKLEJANIE", 
+            font=ctk.CTkFont(size=18, weight="bold")
+        )
+        header_lbl.pack(anchor="w", pady=(10, 2), padx=10)
+
+        # --- DYNAMICZNY PODTYTUŁ Z UŻYTKOWNIKIEM ---
+        sub_text = f"Linia: {linia}  |  Dzień: {day}"
+        if user:
+            sub_text += f"  |  Planista: {user}"
+
+        sub_lbl = ctk.CTkLabel(
+            self.table_frame, 
+            text=sub_text, 
+            font=ctk.CTkFont(size=14),
+            text_color=("#555555", "#9aa0a6") # <--- Krotka: (Jasny, Ciemny)
+        )
+        sub_lbl.pack(anchor="w", pady=(0, 15), padx=10)
+
+        # --- RAMKA TABELI ---
+        table_content = ctk.CTkFrame(self.table_frame, fg_color="transparent")
+        table_content.pack(fill="x", padx=10)
+        
+        # Konfiguracja szerokości kolumn (siatka)
+        table_content.grid_columnconfigure(0, weight=0, minsize=40)  # LP
+        table_content.grid_columnconfigure(1, weight=1)              # INDEKS
+        table_content.grid_columnconfigure(2, weight=0, minsize=100) # ILOŚĆ
+        table_content.grid_columnconfigure(3, weight=0, minsize=50)  # JM
+        table_content.grid_columnconfigure(4, weight=0, minsize=80)  # SZT
+
+        # --- NAGŁÓWKI KOLUMN TABELI ---
+        headers = ["LP", "INDEKS", "ILOŚĆ", "JM", "SZT"]
+        for col_idx, text in enumerate(headers):
+            lbl = ctk.CTkLabel(
+                table_content, 
+                text=text, 
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=("#1f6aa5", "#7ba1c7"), # <--- Akcent w obu trybach
+                anchor="w" if col_idx < 2 else "e" 
             )
-            header_lbl.pack(anchor="w", pady=(10, 2), padx=10)
+            lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=5)
 
-            sub_lbl = ctk.CTkLabel(
-                self.table_frame, 
-                text=f"Linia: {linia}  |  Dzień: {day}", 
-                font=ctk.CTkFont(size=14),
-                text_color=("#555555", "#9aa0a6") # <--- Krotka: (Jasny, Ciemny)
-            )
-            sub_lbl.pack(anchor="w", pady=(0, 15), padx=10)
+        # Linia oddzielająca
+        separator = ctk.CTkFrame(table_content, height=2, fg_color=("#cccccc", "#3a3a3a"))
+        separator.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(0, 5))
 
-            # --- RAMKA TABELI ---
-            table_content = ctk.CTkFrame(self.table_frame, fg_color="transparent")
-            table_content.pack(fill="x", padx=10)
+        # --- WIERSZE Z DANYMI (Zebra kompatybilna z motywami) ---
+        for row_idx, r_data in enumerate(rows):
+            # Parametr: (KolorJasny, KolorCiemny)
+            bg_color = ("#f2f2f2", "#2b2b2b") if row_idx % 2 == 0 else ("#e5e5e5", "#242424")
             
-            table_content.grid_columnconfigure(0, weight=0, minsize=40)  # LP
-            table_content.grid_columnconfigure(1, weight=1)              # INDEKS
-            table_content.grid_columnconfigure(2, weight=0, minsize=100) # ILOŚĆ
-            table_content.grid_columnconfigure(3, weight=0, minsize=50)  # JM
-            table_content.grid_columnconfigure(4, weight=0, minsize=80)  # SZT
-
-            # --- NAGŁÓWKI KOLUMN TABELI ---
-            headers = ["LP", "INDEKS", "ILOŚĆ", "JM", "SZT"]
-            for col_idx, text in enumerate(headers):
+            row_frame = ctk.CTkFrame(table_content, fg_color=bg_color, corner_radius=4)
+            row_frame.grid(row=row_idx + 2, column=0, columnspan=5, sticky="ew", pady=1)
+            
+            values = [
+                f"{r_data['lp']}.", 
+                r_data['index'], 
+                f"{float(r_data['qty']):.1f}", 
+                r_data['jm'], 
+                str(r_data['szt'])
+            ]
+            
+            for col_idx, val in enumerate(values):
                 lbl = ctk.CTkLabel(
-                    table_content, 
-                    text=text, 
-                    font=ctk.CTkFont(size=13, weight="bold"),
-                    text_color=("#1f6aa5", "#7ba1c7"), # <--- Akcent w obu trybach
-                    anchor="w" if col_idx < 2 else "e" 
+                    row_frame, 
+                    text=val, 
+                    font=ctk.CTkFont(size=13),
+                    text_color=("#111111", "#ffffff"), # Wyraźny tekst
+                    anchor="w" if col_idx < 2 else "e"
                 )
-                lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=5)
-
-            # Linia oddzielająca
-            separator = ctk.CTkFrame(table_content, height=2, fg_color=("#cccccc", "#3a3a3a"))
-            separator.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(0, 5))
-
-            # --- WIERSZE Z DANYMI (Zebra kompatybilna z motywami) ---
-            for row_idx, r_data in enumerate(rows):
-                # Parametr: (KolorJasny, KolorCiemny)
-                bg_color = ("#f2f2f2", "#2b2b2b") if row_idx % 2 == 0 else ("#e5e5e5", "#242424")
-                
-                row_frame = ctk.CTkFrame(table_content, fg_color=bg_color, corner_radius=4)
-                row_frame.grid(row=row_idx + 2, column=0, columnspan=5, sticky="ew", pady=1)
-                
-                values = [
-                    f"{r_data['lp']}.", 
-                    r_data['index'], 
-                    f"{float(r_data['qty']):.1f}", 
-                    r_data['jm'], 
-                    str(r_data['szt'])
-                ]
-                
-                for col_idx, val in enumerate(values):
-                    lbl = ctk.CTkLabel(
-                        row_frame, 
-                        text=val, 
-                        font=ctk.CTkFont(size=13),
-                        text_color=("#111111", "#ffffff"), # Wyraźny tekst
-                        anchor="w" if col_idx < 2 else "e"
-                    )
-                    lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=4)
-                
-                row_frame.grid_columnconfigure(0, weight=0, minsize=40)
-                row_frame.grid_columnconfigure(1, weight=1)
-                row_frame.grid_columnconfigure(2, weight=0, minsize=100)
-                row_frame.grid_columnconfigure(3, weight=0, minsize=50)
-                row_frame.grid_columnconfigure(4, weight=0, minsize=80)
+                lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=4)
+            
+            row_frame.grid_columnconfigure(0, weight=0, minsize=40)
+            row_frame.grid_columnconfigure(1, weight=1)
+            row_frame.grid_columnconfigure(2, weight=0, minsize=100)
+            row_frame.grid_columnconfigure(3, weight=0, minsize=50)
+            row_frame.grid_columnconfigure(4, weight=0, minsize=80)

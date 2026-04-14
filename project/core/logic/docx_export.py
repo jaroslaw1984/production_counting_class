@@ -4,7 +4,7 @@ from datetime import datetime
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from project.config.paths import BASE_DIR
+from project.config.paths import REPORT_TEMPLATE_PATH
 
 # --- funkcje eksportu/drukowania/edycji raportu DOCX ---       
 def export_report_docx(report_data: dict, template_path: Path | None = None) -> Path:
@@ -13,7 +13,7 @@ def export_report_docx(report_data: dict, template_path: Path | None = None) -> 
         raise ValueError("Brak danych raportu (report_data).")
 
     if template_path is None:
-        template_path = BASE_DIR / "templates" / "report_template.docx"
+        template_path = REPORT_TEMPLATE_PATH
 
     if not template_path.exists():
         raise FileNotFoundError(f"Brak szablonu DOCX: {template_path}")
