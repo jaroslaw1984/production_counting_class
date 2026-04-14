@@ -7,9 +7,10 @@ from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_A
 from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines
 from project.config.db_loader import fetch_orders_for_machines, normalize_db_df
 from project.core.logic.docx_export import export_report_docx
+from project.core.logic.smart_matcher import SmartPlanMatcher
+from project.config.paths import CONFING_PATH
 from pathlib import Path
 from datetime import datetime, date
-from project.config.paths import CONFING_PATH
 import pandas as pd
 import traceback
 import os
@@ -159,7 +160,6 @@ class MainController:
     
     # --- Główna funkcja obsługująca generowanie raportu po wybraniu parametrów przez użytkownika ---        
     def on_report_params_selected(self, params: dict):
-            """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie"""
             print(f"Kontroler otrzymał parametry od użytkownika: {params}")
             
             linia_value = params["linia"]
@@ -169,10 +169,9 @@ class MainController:
             # --- 1. Cięcie Hydry (OBOWIĄZKOWE) ---
             try:
                 df_group = self._cut_from_order(self.state.df_hydra, start_order_id)
-                traceback.print_exc()
             except Exception as e:
-                # Jeśli nie ma zlecenia w Hydrze, przerywamy wszystko
                 self.view.show_error("Błąd cięcia danych (Hydra)", str(e))
+                traceback.print_exc()
                 return
 
             # --- 2. Cięcie Smart Planu (OPCJONALNE / SMART MATCHING) ---
@@ -181,28 +180,97 @@ class MainController:
                 try:
                     df_cut_plan = self._cut_from_order(self.state.smart_plan_df, start_order_id)
                 except Exception as e:
-                    # Jeśli plan nie ma tego zlecenia, tylko ostrzegamy, nie przerywamy!
                     print(f"Uwaga: Brak zlecenia w Smart Planie. Wyłączam Smart Matching.")
                     self.view.show_warning(
                         "Ostrzeżenie Smart Plan", 
                         f"Plan nie pasuje do startowego zlecenia.\nRaport wygeneruje się bez inteligentnego dopasowania (Fallback).\n\nSzczegóły: {str(e)}"
                     )
-                    df_cut_plan = None # Ustawiamy na None, żeby program użył trybu awaryjnego
+                    df_cut_plan = None
 
-            # --- 3. Pobieranie SAP i budowa bloków ---
+            # --- 3. Pobieranie SAP ---
             try:
-                blocks = self._build_blocks(df_group)
-                
                 df_sap = fetch_sap_basic_profiles(linia=linia_value, day=day_value)
                 if df_sap is None or df_sap.empty:
                     raise ValueError(f"Nie znaleziono danych SAP dla linii: {linia_value} w dniu: {day_value}")
+            except Exception as e:
+                self.view.show_error("Błąd pobierania danych SAP", str(e))
+                return
+
+            # --- 4. Uruchomienie silnika SmartPlanMatcher ---
+            try:
+                matcher = SmartPlanMatcher(df_group, df_cut_plan, df_sap)
+                wynik = matcher.run_matching()
                 
-                print(f"Zbudowano bloków z Hydry: {len(blocks)}")
-                print(f"Pobrano wierszy z SAP: {len(df_sap)}")    
+                blocks = wynik["blocks"]
+                lines = wynik["lines"]
+                rows = wynik["rows"]
+                missing_articles = wynik["missing_articles"]
                 
             except Exception as e:
-                self.view.show_error("Błąd przetwarzania raportu", str(e))
+                self.view.show_error("Błąd generowania raportu (Smart Matcher)", str(e))
+                traceback.print_exc()
                 return
+                
+            # --- 5. Formatowanie i wyświetlanie raportu ---
+            if not lines:
+                self.view.show_warning(
+                    "Brak pozycji w raporcie",
+                    "Nie znaleziono żadnych pozycji dla wybranej linii i startowego zlecenia.\nSprawdź poprawność danych."
+                )
+                self.handle_clean_text()
+                return
+
+            # --- Logowanie kolejności w konsoli (dla testów/debugowania) ---
+            print("\n=== Kolejność podstaw (Hydra) ===")
+            for i, b in enumerate(blocks):
+                print(f'{i+1}. {b["gp"]} ({b["side"]})')
+            print("=================================\n")
+            
+            # --- Właściwy tekst raportu dla użytkownika ---
+            report_text = "RAPORT DOTYCZĄCY ZAPOTRZEBOWANIA POD OKLEJANIE:\n"
+            report_text += f"Linia: {linia_value} | Dzień: {day_value}\n\n"
+            report_text += "LP  INDEKS               ILOŚĆ       M   SZT\n"
+            report_text += "-" * 70 + "\n"
+            report_text += "\n".join(lines)
+            
+            self.view.set_report_text(report_text)
+            self.state.last_report_text = report_text
+            self.state.last_report_kind = "sap"
+            self.view.set_print_button_visibility(True)
+
+            # UWAGA: Aby eksport do DOCX działał poprawnie, musimy tutaj przygotować self.state.last_report_data
+            # Tak jak miałeś to w main_window.py
+            machine_match = re.search(r'(\d+)\s*$', linia_value)
+            machine_name = f"Maszyna {machine_match.group(1)}" if machine_match else ""
+
+            self.state.last_report_data = {
+                "shift_info": "Brak danych o zmianie (do uzupełnienia)", 
+                "report_date": str(date.today()),
+                "user": "", # Możesz dodać logikę wyciągania usera z SAP
+                "line": linia_value,
+                "machine": machine_name,
+                "rows": [
+                    {
+                        "lp": r["lp"],
+                        "index": r["index"],
+                        "qty_m": f'{r["qty"]:.1f} {r["jm"]}',
+                        "pcs": str(r["szt"]),
+                        "pallets": "",
+                    }
+                    for r in rows
+                ]
+            }
+
+            # --- 6. Obsługa ostrzeżeń (brak 0022) ---
+            if missing_articles:
+                preview = "\n".join([f"• {a}: brakuje strony 0022" for a in missing_articles[:12]])
+                if len(missing_articles) > 12:
+                    preview += f"\n… i jeszcze {len(missing_articles) - 12} kolejnych."
+
+                self.view.show_warning(
+                    "Uwaga: braki strony 0022",
+                    f"Wykryto konflikt: na liście artykułów brakuje strony wewnętrznej 0022.\n\nSzczegóły:\n{preview}"
+                )
     
     # --- pomocniecze funkcje do obsługi raportu z pliku ---        
     def _load_hydra_file(self, file_path: str):
@@ -459,46 +527,46 @@ class MainController:
         # Zwraca DataFrame od pierwszego trafienia do samego końca
         return df.loc[hits[0]:].reset_index(drop=True)
     
-    def _build_blocks(self, df: pd.DataFrame) -> list[dict]:
-        """Grupuje ciągłe zlecenia o tym samym grundprofil i side w bloki."""
-        tmp = df.copy()
-        tmp["grundprofil"] = tmp["grundprofil"].astype("string").str.strip()
-        tmp["side"] = tmp["side"].astype("string").str.strip().str.zfill(4)
+    # def _build_blocks(self, df: pd.DataFrame) -> list[dict]:
+    #     """Grupuje ciągłe zlecenia o tym samym grundprofil i side w bloki."""
+    #     tmp = df.copy()
+    #     tmp["grundprofil"] = tmp["grundprofil"].astype("string").str.strip()
+    #     tmp["side"] = tmp["side"].astype("string").str.strip().str.zfill(4)
         
-        # Opcjonalna normalizacja zer wiodących na potrzeby grupowania
-        mask = tmp["order_id"].str.fullmatch(r"\d+").fillna(False) & (tmp["order_id"].str.len() < 12)
-        tmp.loc[mask, "order_id"] = tmp.loc[mask, "order_id"].str.zfill(12)
+    #     # Opcjonalna normalizacja zer wiodących na potrzeby grupowania
+    #     mask = tmp["order_id"].str.fullmatch(r"\d+").fillna(False) & (tmp["order_id"].str.len() < 12)
+    #     tmp.loc[mask, "order_id"] = tmp.loc[mask, "order_id"].str.zfill(12)
 
-        blocks: list[dict] = []
-        prev = None
-        start = 0
-        keys = list(zip(tmp["grundprofil"].tolist(), tmp["side"].tolist()))
+    #     blocks: list[dict] = []
+    #     prev = None
+    #     start = 0
+    #     keys = list(zip(tmp["grundprofil"].tolist(), tmp["side"].tolist()))
 
-        for i, key in enumerate(keys):
-            if key != prev:
-                if prev is not None:
-                    b = tmp.iloc[start:i]
-                    blocks.append({
-                        "gp": prev[0],
-                        "side": prev[1],
-                        "order_ids": set(b["order_id"].tolist()),
-                        "start_i": start,
-                        "end_i": i - 1,
-                    })
-                prev = key
-                start = i
+    #     for i, key in enumerate(keys):
+    #         if key != prev:
+    #             if prev is not None:
+    #                 b = tmp.iloc[start:i]
+    #                 blocks.append({
+    #                     "gp": prev[0],
+    #                     "side": prev[1],
+    #                     "order_ids": set(b["order_id"].tolist()),
+    #                     "start_i": start,
+    #                     "end_i": i - 1,
+    #                 })
+    #             prev = key
+    #             start = i
 
-        if prev is not None and len(tmp) > 0:
-            b = tmp.iloc[start:]
-            blocks.append({
-                "gp": prev[0],
-                "side": prev[1],
-                "order_ids": set(b["order_id"].tolist()),
-                "start_i": start,
-                "end_i": len(tmp) - 1,
-            })
+    #     if prev is not None and len(tmp) > 0:
+    #         b = tmp.iloc[start:]
+    #         blocks.append({
+    #             "gp": prev[0],
+    #             "side": prev[1],
+    #             "order_ids": set(b["order_id"].tolist()),
+    #             "start_i": start,
+    #             "end_i": len(tmp) - 1,
+    #         })
             
-        return blocks
+    #     return blocks
     
     # --- tworzy skrócony raport do druku z pełnego raportu tylko kluczowe informacje ---
     def _make_print_summary(self, report_text: str) -> str:
