@@ -149,6 +149,20 @@ class MainController:
             os.startfile(path, "print")
         except Exception as e:
             self.view.show_error("Błąd druku", f"Nie udało się uruchomić druku:\n{e}")
+
+    # --- Obsługa edycji raportu DOCX ---        
+    def handle_edit_report(self):
+        kind = self.state.last_report_kind
+        if kind == "sap" and self.state.last_report_data:
+            try:
+                # Generujemy plik w tle i otwieramy go w Wordzie
+                docx_path = export_report_docx(self.state.last_report_data)
+                self._open_docx(docx_path)
+            except Exception as e:
+                self.view.show_error("Błąd edycji", f"Nie udało się przygotować/otworzyć DOCX:\n{e}")
+                traceback.print_exc()
+        else:
+            self.view.show_warning("Brak raportu", "Najpierw wygeneruj raport SAP.")
     
     # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):
@@ -211,38 +225,25 @@ class MainController:
                 traceback.print_exc()
                 return
                 
-            # --- 5. Formatowanie i wyświetlanie raportu ---
-            if not lines:
-                self.view.show_warning(
-                    "Brak pozycji w raporcie",
-                    "Nie znaleziono żadnych pozycji dla wybranej linii i startowego zlecenia.\nSprawdź poprawność danych."
-                )
-                self.handle_clean_text()
-                return
-
-            # --- Logowanie kolejności w konsoli (dla testów/debugowania) ---
+            # --- 5. Logowanie do konsoli (zostawiamy dla testów) ---
             print("\n=== Kolejność podstaw (Hydra) ===")
             for i, b in enumerate(blocks):
                 print(f'{i+1}. {b["gp"]} ({b["side"]})')
             print("=================================\n")
             
-            # --- Właściwy tekst raportu dla użytkownika ---
-            report_text = "RAPORT DOTYCZĄCY ZAPOTRZEBOWANIA POD OKLEJANIE:\n"
-            report_text += f"Linia: {linia_value} | Dzień: {day_value}\n\n"
-            report_text += "LP  INDEKS               ILOŚĆ       M   SZT\n"
-            report_text += "-" * 70 + "\n"
-            report_text += "\n".join(lines)
+            # --- Przekazanie DANYCH do Widoku zamiast surowego tekstu ---
+            # Widok sam zajmie się ładnym wyrenderowaniem tabeli
+            self.view.render_sap_report_table(linia_value, day_value, rows)
             
-            self.view.set_report_text(report_text)
-            self.state.last_report_text = report_text
+            # (Opcjonalnie) aktualizacja stanu, jeśli potrzebujesz tego do innych celów
             self.state.last_report_kind = "sap"
             self.view.set_print_button_visibility(True)
 
-            # UWAGA: Aby eksport do DOCX działał poprawnie, musimy tutaj przygotować self.state.last_report_data
-            # Tak jak miałeś to w main_window.py
+            # --- Przygotowanie nazwy maszyny dla Pylance ---
             machine_match = re.search(r'(\d+)\s*$', linia_value)
             machine_name = f"Maszyna {machine_match.group(1)}" if machine_match else ""
 
+            # --- Zapis danych do stanu (potrzebne do druku DOCX) ---
             self.state.last_report_data = {
                 "shift_info": "Brak danych o zmianie (do uzupełnienia)", 
                 "report_date": str(date.today()),
@@ -457,7 +458,6 @@ class MainController:
             )
 
             # 4. Wyświetlamy raport w głównym oknie
-            # Zakładam, że w MainView masz metodę set_text lub podobną
             self.view.set_report_text(report_text)
             
             self.state.last_report_kind = "db"

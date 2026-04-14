@@ -97,28 +97,43 @@ class MainWindow:
     # # # # # # # # # # # # # # # # #                  
 
     def _build_right_panel(self):
-        self.right = ctk.CTkFrame(self.root)
-        self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) 
+            self.right = ctk.CTkFrame(self.root)
+            self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) 
 
-        self.right.grid_columnconfigure(0, weight=1)
-        self.right.grid_rowconfigure(0, weight=0)  
-        self.right.grid_rowconfigure(1, weight=1)       
+            self.right.grid_columnconfigure(0, weight=1)
+            self.right.grid_rowconfigure(0, weight=0)  
+            self.right.grid_rowconfigure(1, weight=1) # Tabela będzie się rozciągać
+            self.right.grid_rowconfigure(2, weight=0) # Pasek przycisków zawsze na dole       
 
-        self.text = ctk.CTkTextbox(self.right)
-        self.text.grid(row=1, column=0, sticky="nsew")
-        self.text.configure(state="disabled") 
-        
-        # --- pływający przycisk drukowania ---
-        self.print_btn = ctk.CTkButton(
-            self.right,
-            text="Drukuj raport",
-            command=self.hanlde_print_report,
-            width=120,
-            height=35
-        )
-        
-        # --- Budowa ekranu powitalnego na samym końcu ---
-        self._build_welcome_screen()
+            self.text = ctk.CTkTextbox(self.right)
+            self.text.grid(row=1, column=0, sticky="nsew")
+            self.text.configure(state="disabled") 
+            
+            # --- Pasek akcji na dole prawego panelu (Drukuj, Edytuj) ---
+            self.action_frame = ctk.CTkFrame(self.right, fg_color="transparent")
+            self.action_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+            self.action_frame.grid_remove() # Domyślnie ukryte
+            
+            self.edit_btn = ctk.CTkButton(
+                self.action_frame,
+                text="Edytuj raport",
+                command=self.handle_edit_report,
+                width=140,
+                height=35
+            )
+            self.edit_btn.pack(side="right", padx=(10, 0))
+
+            self.print_btn = ctk.CTkButton(
+                self.action_frame,
+                text="Drukuj raport",
+                command=self.hanlde_print_report,
+                width=140,
+                height=35
+            )
+            self.print_btn.pack(side="right")
+            
+            # --- Budowa ekranu powitalnego na samym końcu ---
+            self._build_welcome_screen()
         
     def _build_welcome_screen(self):
             # --- Tworzymy etykiety, jako "rodzica" podając główne pole tekstowe (self.text) ---
@@ -168,12 +183,20 @@ class MainWindow:
         self.placeholder_ver.place_forget()           
         
     def set_print_button_visibility(self, visible: bool):
-        # --- pokazujemy lub chowamy przycisk drukowania w zależności od tego, czy mamy raport do wydrukowania ---
-        if visible:
-            # Używamy parametrów relatywnych, aby przycisk "pływał"
-            self.print_btn.place(relx=0.97, rely=0.96, anchor="se")
-        else:
-            self.print_btn.place_forget()
+            # --- pokazujemy lub chowamy cały dolny pasek akcji ---
+            if visible:
+                self.action_frame.grid()
+                # Jeśli to raport SAP, pokaż też przycisk Edytuj. Jeśli DB - schowaj go.
+                if self.state.last_report_kind == "sap":
+                    self.edit_btn.pack(side="right", padx=(10, 0))
+                else:
+                    self.edit_btn.pack_forget()
+            else:
+                self.action_frame.grid_remove()
+
+    def handle_edit_report(self):
+        if hasattr(self, 'controller'):
+            self.controller.handle_edit_report()
             
     def handle_clean_text(self):
         self.state.last_report_kind = None
@@ -218,15 +241,23 @@ class MainWindow:
             self.controller.handle_clean_text()
             
     def clear_report_view(self):
-        self.text.configure(state="normal") # Odblokuj
-        self.text.delete("1.0", "end") # Wyczyść
-        self.text.configure(state="disabled") # Zablokuj
-        
-        # --- chowanie przycisku drukowania
-        self.set_print_button_visibility(False)
-        
-        # --- pokazanie ekranu powitalnego ---
-        self.show_welcome_screen()
+            # 1. Usuń ładną tabelę, jeśli istnieje
+            if hasattr(self, "table_frame") and self.table_frame:
+                self.table_frame.destroy()
+                self.table_frame = None
+                
+            # 2. Przywróć główny Textbox, jeśli był ukryty
+            if hasattr(self, "text"):
+                self.text.grid(row=1, column=0, sticky="nsew")
+                self.text.configure(state="normal") # Odblokuj
+                self.text.delete("1.0", "end") # Wyczyść
+                self.text.configure(state="disabled") # Zablokuj
+            
+            # 3. Schowaj przycisk drukowania
+            self.set_print_button_visibility(False)
+            
+            # 4. Pokaż ekran powitalny
+            self.show_welcome_screen()
         
     def help_btn(self):
         HelpWindow(self.root)
@@ -278,3 +309,90 @@ class MainWindow:
         
     def show_schedule_popup(self, on_confirm):
         SchedulePopup(self.root, on_confirm)
+        
+    def render_sap_report_table(self, linia: str, day: str, rows: list[dict]):
+            """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
+            
+            if hasattr(self, "text") and self.text:
+                self.text.grid_remove() 
+            self.hide_welcome_screen()
+                
+            if hasattr(self, "table_frame") and self.table_frame:
+                self.table_frame.destroy()
+
+            self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+            self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+            # --- NAGŁÓWEK RAPORTU ---
+            header_lbl = ctk.CTkLabel(
+                self.table_frame, 
+                text="RAPORT DOTYCZĄCY ZAPOTRZEBOWANIA POD OKLEJANIE", 
+                font=ctk.CTkFont(size=18, weight="bold")
+            )
+            header_lbl.pack(anchor="w", pady=(10, 2), padx=10)
+
+            sub_lbl = ctk.CTkLabel(
+                self.table_frame, 
+                text=f"Linia: {linia}  |  Dzień: {day}", 
+                font=ctk.CTkFont(size=14),
+                text_color=("#555555", "#9aa0a6") # <--- Krotka: (Jasny, Ciemny)
+            )
+            sub_lbl.pack(anchor="w", pady=(0, 15), padx=10)
+
+            # --- RAMKA TABELI ---
+            table_content = ctk.CTkFrame(self.table_frame, fg_color="transparent")
+            table_content.pack(fill="x", padx=10)
+            
+            table_content.grid_columnconfigure(0, weight=0, minsize=40)  # LP
+            table_content.grid_columnconfigure(1, weight=1)              # INDEKS
+            table_content.grid_columnconfigure(2, weight=0, minsize=100) # ILOŚĆ
+            table_content.grid_columnconfigure(3, weight=0, minsize=50)  # JM
+            table_content.grid_columnconfigure(4, weight=0, minsize=80)  # SZT
+
+            # --- NAGŁÓWKI KOLUMN TABELI ---
+            headers = ["LP", "INDEKS", "ILOŚĆ", "JM", "SZT"]
+            for col_idx, text in enumerate(headers):
+                lbl = ctk.CTkLabel(
+                    table_content, 
+                    text=text, 
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    text_color=("#1f6aa5", "#7ba1c7"), # <--- Akcent w obu trybach
+                    anchor="w" if col_idx < 2 else "e" 
+                )
+                lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=5)
+
+            # Linia oddzielająca
+            separator = ctk.CTkFrame(table_content, height=2, fg_color=("#cccccc", "#3a3a3a"))
+            separator.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(0, 5))
+
+            # --- WIERSZE Z DANYMI (Zebra kompatybilna z motywami) ---
+            for row_idx, r_data in enumerate(rows):
+                # Parametr: (KolorJasny, KolorCiemny)
+                bg_color = ("#f2f2f2", "#2b2b2b") if row_idx % 2 == 0 else ("#e5e5e5", "#242424")
+                
+                row_frame = ctk.CTkFrame(table_content, fg_color=bg_color, corner_radius=4)
+                row_frame.grid(row=row_idx + 2, column=0, columnspan=5, sticky="ew", pady=1)
+                
+                values = [
+                    f"{r_data['lp']}.", 
+                    r_data['index'], 
+                    f"{float(r_data['qty']):.1f}", 
+                    r_data['jm'], 
+                    str(r_data['szt'])
+                ]
+                
+                for col_idx, val in enumerate(values):
+                    lbl = ctk.CTkLabel(
+                        row_frame, 
+                        text=val, 
+                        font=ctk.CTkFont(size=13),
+                        text_color=("#111111", "#ffffff"), # Wyraźny tekst
+                        anchor="w" if col_idx < 2 else "e"
+                    )
+                    lbl.grid(row=0, column=col_idx, sticky="ew", padx=10, pady=4)
+                
+                row_frame.grid_columnconfigure(0, weight=0, minsize=40)
+                row_frame.grid_columnconfigure(1, weight=1)
+                row_frame.grid_columnconfigure(2, weight=0, minsize=100)
+                row_frame.grid_columnconfigure(3, weight=0, minsize=50)
+                row_frame.grid_columnconfigure(4, weight=0, minsize=80)
