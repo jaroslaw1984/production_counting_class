@@ -247,7 +247,7 @@ class MainController:
 
             # --- Przygotowanie nazwy maszyny dla Pylance ---
             machine_match = re.search(r'(\d+)\s*$', linia_value)
-            machine_name = f"Maszyna {machine_match.group(1)}" if machine_match else ""
+            machine_name = f"Maszyna {int(machine_match.group(1))}" if machine_match else ""
 
             # --- Zapis danych do stanu (potrzebne do druku DOCX) ---
             self.state.last_report_data = {
