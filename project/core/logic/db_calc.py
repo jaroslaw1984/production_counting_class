@@ -107,9 +107,8 @@ def build_db_report_pieces(
         shifts_rounded = round_shifts_custom(shifts_exact)
         
         # Zamiast dodawać do zaokrąglonych zmian, dodaj do surowego wyniku (float)
-        buffer_shifts = 0.5 
-        shifts_exact = prod_shifts + setup_shifts + buffer_shifts
-        shifts_count = round_shifts_custom(shifts_exact) 
+        buffer_shifts = 1 
+        shifts_count = shifts_rounded + buffer_shifts
 
         # --- koniec produkcji dla tej maszyny ---
         end_d, end_s = add_shifts(
