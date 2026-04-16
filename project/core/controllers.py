@@ -133,7 +133,7 @@ class MainController:
             return
 
         # 2) Tryb DB lub inny -> drukujemy skrócony tekst
-        report_text_full = self.view.text.get("1.0", "end").strip()
+        report_text_full = getattr(self.state, "last_report_text", "").strip()
         if kind == "db":
             report_to_print = self._make_print_summary(report_text_full)
         else:
