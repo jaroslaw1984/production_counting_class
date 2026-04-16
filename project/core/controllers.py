@@ -464,7 +464,9 @@ class MainController:
             )
 
             # 4. Wyświetlamy raport w głównym oknie
-            self.view.set_report_text(report_text)
+            # WAŻNE: Zapisujemy czysty tekst do stanu do ew. drukowania!
+            self.state.last_report_text = report_text 
+            self.view.render_db_report_cards(report_text)
             
             self.state.last_report_kind = "db"
             self.view.set_print_button_visibility(True)

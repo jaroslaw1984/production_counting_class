@@ -402,3 +402,144 @@ class MainWindow:
             row_frame.grid_columnconfigure(2, weight=0, minsize=100)
             row_frame.grid_columnconfigure(3, weight=0, minsize=50)
             row_frame.grid_columnconfigure(4, weight=0, minsize=80)
+            
+    def render_db_report_cards(self, report_text: str):
+        """Renderuje eleganckie karty dla raportu z bazy danych (Wczytaj maszyny)."""
+        
+        # 1. Ukrywamy stary Textbox i ekran powitalny
+        if hasattr(self, "text") and self.text:
+            self.text.grid_remove() 
+        self.hide_welcome_screen()
+            
+        # 2. Resetujemy kontener, jeśli wcześniej był użyty (np. przez raport SAP)
+        if hasattr(self, "table_frame") and self.table_frame:
+            self.table_frame.destroy()
+
+        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        # --- NAGŁÓWEK GŁÓWNY ---
+        header_lbl = ctk.CTkLabel(
+            self.table_frame, 
+            text="PRZEWIDYWANE ZAKOŃCZENIE PRODUKCJI", 
+            font=ctk.CTkFont(size=18, weight="bold")
+        )
+        header_lbl.pack(anchor="w", pady=(10, 15), padx=10)
+
+        # --- INTELIGENTNE PARSOWANIE TEKSTU ---
+        machines_data = []
+        current = None
+        
+        for line in report_text.splitlines():
+            line = line.strip()
+            if not line or "Przewidywane zakończenie produkcji" in line:
+                continue
+            
+            # Nowa maszyna
+            if line.startswith("===") and line.endswith("==="):
+                if current:
+                    machines_data.append(current)
+                current = {
+                    "name": line.replace("=", "").strip(), 
+                    "details": [], 
+                    "end": "", 
+                    "warning": ""
+                }
+                continue
+                
+            if current is not None:
+                if line.startswith("Przewidywana produkcja do:"):
+                    current["end"] = line.replace("Przewidywana produkcja do:", "").strip()
+                elif line.startswith("⚠️"):
+                    current["warning"] += line + "\n"
+                elif line.startswith("---"): 
+                    continue # Pomijamy linię oddzielającą
+                elif "Brak danych" in line:
+                    current["details"].append(("Status", "Brak danych w bazie (SQL)"))
+                else:
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        current["details"].append((k.strip(), v.strip()))
+                    else:
+                        # Doklejamy np. linie z listą profili bez configu do ostrzeżenia
+                        if current.get("warning") is not None:
+                             current["warning"] += line + "\n"
+        
+        # Zapisz ostatnią maszynę z pętli
+        if current:
+            machines_data.append(current)
+
+        # --- RYSOWANIE KART (Cards) ---
+        for m_data in machines_data:
+            # Tło karty
+            card = ctk.CTkFrame(self.table_frame, fg_color=("#f2f2f2", "#242424"), corner_radius=8)
+            card.pack(fill="x", padx=10, pady=(0, 15))
+
+            # Header karty (Nazwa maszyny)
+            header_row = ctk.CTkFrame(card, fg_color=("#e5e5e5", "#1f1f1f"), corner_radius=8, height=40)
+            header_row.pack(fill="x")
+            header_row.pack_propagate(False) # Blokuje zmianę wysokości
+            
+            lbl_name = ctk.CTkLabel(
+                header_row, 
+                text=m_data["name"], 
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color=("#1f6aa5", "#7ba1c7")
+            )
+            lbl_name.pack(side="left", padx=15)
+
+            # Kontener na szczegóły
+            content_frame = ctk.CTkFrame(card, fg_color="transparent")
+            content_frame.pack(fill="x", padx=15, pady=10)
+
+            # Wiersze z danymi (Klucz: Wartość)
+            for key, val in m_data["details"]:
+                row = ctk.CTkFrame(content_frame, fg_color="transparent")
+                row.pack(fill="x", pady=2)
+                
+                lbl_k = ctk.CTkLabel(
+                    row, text=key + ":", 
+                    font=ctk.CTkFont(size=13), 
+                    text_color=("#555555", "#aaaaaa"), 
+                    width=170, 
+                    anchor="w"
+                )
+                lbl_k.pack(side="left")
+                
+                lbl_v = ctk.CTkLabel(
+                    row, text=val, 
+                    font=ctk.CTkFont(size=13, weight="bold"), 
+                    text_color=("#111111", "#ffffff"), 
+                    anchor="w"
+                )
+                lbl_v.pack(side="left", fill="x", expand=True)
+
+            # Ostrzeżenia (Pomarańczowy akcent)
+            if m_data.get("warning"):
+                warn_lbl = ctk.CTkLabel(
+                    card, 
+                    text=m_data["warning"].strip(), 
+                    text_color=("#c86400", "#e68a00"), 
+                    font=ctk.CTkFont(size=12, slant="italic"),
+                    justify="left"
+                )
+                warn_lbl.pack(anchor="w", padx=15, pady=(0, 10))
+
+            # Stopka Terminu (Zielony akcent)
+            if m_data.get("end"):
+                end_frame = ctk.CTkFrame(card, fg_color=("#d4edda", "#1c3b24"), corner_radius=6)
+                end_frame.pack(fill="x", padx=15, pady=(5, 15))
+                
+                end_title = ctk.CTkLabel(
+                    end_frame, text="Przewidywana produkcja do:", 
+                    font=ctk.CTkFont(size=13), 
+                    text_color=("#155724", "#85c894")
+                )
+                end_title.pack(side="left", padx=10, pady=8)
+                
+                end_val = ctk.CTkLabel(
+                    end_frame, text=m_data["end"], 
+                    font=ctk.CTkFont(size=14, weight="bold"), 
+                    text_color=("#0c3815", "#a3e5b3")
+                )
+                end_val.pack(side="right", padx=10, pady=8)
