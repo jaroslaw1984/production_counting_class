@@ -133,7 +133,7 @@ class MainWindow:
             self.welcome_inner, 
             text=ASCII_LOGO,
             justify="center",
-            text_color=("#1f6aa5", "#3daee9"), # <--- Kolor dla jasnego i ciemnego motywu
+            text_color=("#2980b9", "#85c1e9"), # Głęboki fiolet / Jasny, pastelowy fiolet
             font=ctk.CTkFont(family="Courier New", size=10, weight="bold")
         )
         self.placeholder_logo.pack(pady=(30, 15), padx=40)
@@ -158,8 +158,8 @@ class MainWindow:
         self.placeholder_ver = ctk.CTkLabel(
             self.welcome_inner,
             text=HOME_VERSION,
-            text_color="#6f767d",
-            font=ctk.CTkFont(size=12),
+            text_color="#a86b47",
+            font=ctk.CTkFont(size=12, weight="bold"),
             justify="center"
         )
         self.placeholder_ver.pack(pady=(0, 30))
