@@ -97,100 +97,98 @@ class MainWindow:
     # # # # # # # # # # # # # # # # #                  
 
     def _build_right_panel(self):
-            self.right = ctk.CTkFrame(self.root)
-            self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) 
+        self.right = ctk.CTkFrame(self.root)
+        self.right.grid(row=0, column=1, sticky="nsew", padx=10, pady=10) 
 
-            self.right.grid_columnconfigure(0, weight=1)
-            self.right.grid_rowconfigure(0, weight=0)  
-            self.right.grid_rowconfigure(1, weight=1) # Tabela będzie się rozciągać
-            self.right.grid_rowconfigure(2, weight=0) # Pasek przycisków zawsze na dole       
+        self.right.grid_columnconfigure(0, weight=1)
+        self.right.grid_rowconfigure(0, weight=0)  
+        self.right.grid_rowconfigure(1, weight=1) 
+        self.right.grid_rowconfigure(2, weight=0) 
+        
+        # --- Pasek akcji na dole prawego panelu ---
+        self.action_frame = ctk.CTkFrame(self.right, fg_color="transparent")
+        self.action_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.action_frame.grid_remove() # Domyślnie ukryte
+        
+        self.edit_btn = ctk.CTkButton(
+            self.action_frame, text="Edytuj raport", command=self.handle_edit_report, width=140, height=35
+        )
 
-            self.text = ctk.CTkTextbox(self.right)
-            self.text.grid(row=1, column=0, sticky="nsew")
-            self.text.configure(state="disabled") 
-            
-            # --- Pasek akcji na dole prawego panelu (Drukuj, Edytuj) ---
-            self.action_frame = ctk.CTkFrame(self.right, fg_color="transparent")
-            self.action_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-            self.action_frame.grid_remove() # Domyślnie ukryte
-            
-            self.edit_btn = ctk.CTkButton(
-                self.action_frame,
-                text="Edytuj raport",
-                command=self.handle_edit_report,
-                width=140,
-                height=35
-            )
-            self.edit_btn.pack(side="right", padx=(10, 0))
-
-            self.print_btn = ctk.CTkButton(
-                self.action_frame,
-                text="Drukuj raport",
-                command=self.hanlde_print_report,
-                width=140,
-                height=35
-            )
-            self.print_btn.pack(side="right")
-            
-            # --- Budowa ekranu powitalnego na samym końcu ---
-            self._build_welcome_screen()
+        self.print_btn = ctk.CTkButton(
+            self.action_frame, text="Drukuj raport", command=self.hanlde_print_report, width=140, height=35
+        )
+        
+        self._build_welcome_screen()
         
     def _build_welcome_screen(self):
-            # --- Tworzymy etykiety, jako "rodzica" podając główne pole tekstowe (self.text) ---
-            self.placeholder_logo = ctk.CTkLabel(
-                self.text,
-                text=ASCII_LOGO,
-                justify="center",
-                anchor="center",
-                font=ctk.CTkFont(family="Courier New", size=10)
-            )
-            self.placeholder_title = ctk.CTkLabel(
-                self.text,
-                text=HOME_SUBTITLE,
-                font=ctk.CTkFont(size=18, weight="bold"),
-                justify="center"
-            )
-            self.placeholder_desc = ctk.CTkLabel(
-                self.text,
-                text=HOME_DESC,
-                text_color="#9aa0a6",
-                font=ctk.CTkFont(size=13),
-                justify="center"
-            )
-            self.placeholder_ver = ctk.CTkLabel(
-                self.text,
-                text=HOME_VERSION,
-                text_color="#6f767d",
-                font=ctk.CTkFont(size=12),
-                justify="center"
-            )
-            
-            # Wywołujemy pokazanie na starcie
-            self.show_welcome_screen()
+        # Cała powierzchnia
+        self.welcome_frame = ctk.CTkFrame(self.right, fg_color="transparent")
+        
+        # Centralna karta (Card) z delikatnym tłem
+        self.welcome_inner = ctk.CTkFrame(self.welcome_frame, fg_color=("#e5e5e5", "#1e1e1e"), corner_radius=15)
+        self.welcome_inner.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Logo ASCII z błękitnym akcentem kolorystycznym!
+        self.placeholder_logo = ctk.CTkLabel(
+            self.welcome_inner, 
+            text=ASCII_LOGO,
+            justify="center",
+            text_color=("#1f6aa5", "#3daee9"), # <--- Kolor dla jasnego i ciemnego motywu
+            font=ctk.CTkFont(family="Courier New", size=10, weight="bold")
+        )
+        self.placeholder_logo.pack(pady=(30, 15), padx=40)
+
+        self.placeholder_title = ctk.CTkLabel(
+            self.welcome_inner,
+            text=HOME_SUBTITLE,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            justify="center"
+        )
+        self.placeholder_title.pack(pady=(0, 5), padx=40)
+
+        self.placeholder_desc = ctk.CTkLabel(
+            self.welcome_inner,
+            text=HOME_DESC,
+            text_color="#9aa0a6",
+            font=ctk.CTkFont(size=13),
+            justify="center"
+        )
+        self.placeholder_desc.pack(pady=(0, 5), padx=40)
+
+        self.placeholder_ver = ctk.CTkLabel(
+            self.welcome_inner,
+            text=HOME_VERSION,
+            text_color="#6f767d",
+            font=ctk.CTkFont(size=12),
+            justify="center"
+        )
+        self.placeholder_ver.pack(pady=(0, 30))
+        
+        self.show_welcome_screen()
 
     def show_welcome_screen(self):
-        # --- nakłada etykiety powitalne na pole tekstowe. ---
-        self.placeholder_logo.place(relx=0.5, rely=0.42, anchor="center")
-        self.placeholder_title.place(relx=0.5, rely=0.58, anchor="center")
-        self.placeholder_desc.place(relx=0.5, rely=0.63, anchor="center")
-        self.placeholder_ver.place(relx=0.5, rely=0.69, anchor="center")
-
+        self.welcome_frame.grid(row=1, column=0, sticky="nsew")
+        
     def hide_welcome_screen(self):
-        # --- chowa etykiety powitalne (np. gdy pojawia się raport). ---
-        self.placeholder_logo.place_forget()
-        self.placeholder_title.place_forget()
-        self.placeholder_desc.place_forget()
-        self.placeholder_ver.place_forget()           
+        # Chowamy ramkę startową
+        if hasattr(self, "welcome_frame"):
+            self.welcome_frame.grid_remove()        
         
     def set_print_button_visibility(self, visible: bool):
             # --- pokazujemy lub chowamy cały dolny pasek akcji ---
             if visible:
                 self.action_frame.grid()
-                # Jeśli to raport SAP, pokaż też przycisk Edytuj. Jeśli DB - schowaj go.
+                
+                # Najpierw bezwzględnie czyścimy układ, żeby zapobiec nakładaniu się przycisków (bug z CustomTkinter)
+                self.print_btn.pack_forget()
+                self.edit_btn.pack_forget()
+                
+                # Pakujemy od prawej do lewej: najpierw "Drukuj" na sam prawy skraj
+                self.print_btn.pack(side="right")
+                
+                # Jeśli to raport SAP, dokładamy "Edytuj" na lewo od przycisku drukowania (z małym odstępem)
                 if self.state.last_report_kind == "sap":
-                    self.edit_btn.pack(side="right", padx=(10, 0))
-                else:
-                    self.edit_btn.pack_forget()
+                    self.edit_btn.pack(side="right", padx=(0, 10))
             else:
                 self.action_frame.grid_remove()
 
@@ -201,7 +199,7 @@ class MainWindow:
     def handle_clean_text(self):
         self.state.last_report_kind = None
         self.clear_report_view()
-    
+          
     def _get_theme_button_text(self) -> str:
         return "Jasny motyw" if ctk.get_appearance_mode() == "Dark" else "Ciemny motyw"
     
@@ -241,23 +239,26 @@ class MainWindow:
             self.controller.handle_clean_text()
             
     def clear_report_view(self):
-            # 1. Usuń ładną tabelę, jeśli istnieje
-            if hasattr(self, "table_frame") and self.table_frame:
-                self.table_frame.destroy()
+        # 1. Usuń wszystko z prawej strony
+        self._cleanup_table()
+        
+        # 2. Schowaj przyciski
+        self.set_print_button_visibility(False)
+        
+        # 3. Pokaż nowy ekran powitalny
+        self.show_welcome_screen()
+
+    def _cleanup_table(self):
+        """Pancerne usuwanie widoków raportów."""
+        if hasattr(self, "table_frame") and self.table_frame is not None:
+            try:
+                self.table_frame.grid_forget() # Wymusza zdjęcie ze sceny
+                if self.table_frame.winfo_exists():
+                    self.table_frame.destroy()
+            except Exception:
+                pass
+            finally:
                 self.table_frame = None
-                
-            # 2. Przywróć główny Textbox, jeśli był ukryty
-            if hasattr(self, "text"):
-                self.text.grid(row=1, column=0, sticky="nsew")
-                self.text.configure(state="normal") # Odblokuj
-                self.text.delete("1.0", "end") # Wyczyść
-                self.text.configure(state="disabled") # Zablokuj
-            
-            # 3. Schowaj przycisk drukowania
-            self.set_print_button_visibility(False)
-            
-            # 4. Pokaż ekran powitalny
-            self.show_welcome_screen()
         
     def help_btn(self):
         HelpWindow(self.root)
@@ -298,25 +299,33 @@ class MainWindow:
         ReportParamsPopup(self.root, machines, on_confirm)
         
     def set_report_text(self, text):
-        self.text.configure(state="normal")
+        self._cleanup_table() 
+        self.hide_welcome_screen() 
         
-        self.text.delete("1.0", "end") # Czyścimy stare dane
-        self.hide_welcome_screen() # Ukrywamy ekran powitalny, jeśli był widoczny
-        self.text.insert("1.0", text)  # Wstawiamy nowy raport
-        
-        # Ponownie blokujemy, żeby użytkownik przypadkiem nic nie skasował
-        self.text.configure(state="disabled")
+        # Używamy zaufanego ScrollableFrame zamiast brzydkiego textarea
+        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        # Tworzymy elegancką kartę dla podsumowania
+        card = ctk.CTkFrame(self.table_frame, fg_color=("#f2f2f2", "#242424"), corner_radius=10)
+        card.pack(pady=20, padx=20, fill="x")
+
+        # Formatujemy tekst czcionką stałoszerokościową, by wszystko było równiutko
+        lbl = ctk.CTkLabel(
+            card,
+            text=text,
+            font=ctk.CTkFont(family="Consolas", size=14), 
+            justify="left",
+            text_color=("#111111", "#e0e0e0")
+        )
+        lbl.pack(pady=20, padx=20, anchor="w")
         
     def show_schedule_popup(self, on_confirm):
         SchedulePopup(self.root, on_confirm)
         
     def render_sap_report_table(self, linia: str, day: str, rows: list[dict], user: str = ""):
         """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
-        
-        if hasattr(self, "text") and self.text:
-            self.text.grid_remove() 
-        self.hide_welcome_screen()
-            
+        # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu bazy danych) ---
         if hasattr(self, "table_frame") and self.table_frame:
             self.table_frame.destroy()
 
@@ -405,11 +414,8 @@ class MainWindow:
             
     def render_db_report_cards(self, report_text: str):
         """Renderuje eleganckie karty dla raportu z bazy danych (Wczytaj maszyny)."""
-        
-        # 1. Ukrywamy stary Textbox i ekran powitalny
-        if hasattr(self, "text") and self.text:
-            self.text.grid_remove() 
-        self.hide_welcome_screen()
+        # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu SAP) ---
+        self._cleanup_table()
             
         # 2. Resetujemy kontener, jeśli wcześniej był użyty (np. przez raport SAP)
         if hasattr(self, "table_frame") and self.table_frame:
