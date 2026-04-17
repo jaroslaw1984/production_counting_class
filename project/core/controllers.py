@@ -324,10 +324,12 @@ class MainController:
             self.state.df_hydra = df_hydra_queue
             self.state.smart_plan_df = df_smart_plan
             
-            # Tymczasowy test w konsoli:
+            # --- Test w konsoli do diagnozy ---
+            """
             print("Kontroler: Plik załadowany pomyślnie!")
             print(f"Ilość wierszy kolejki Hydry: {len(df_hydra_queue) if df_hydra_queue is not None else 0}")
             print(f"Ilość wierszy Smart Planu: {len(df_smart_plan ) if df_smart_plan is not None else 0}")
+            """
         except Exception as e:
             self.view.show_error("Błąd wczytywania pliku", str(e))   
     
