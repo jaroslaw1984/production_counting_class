@@ -16,7 +16,7 @@ class MainWindow:
         # --- Root window ---
         self.root = ctk.CTk()
         self.root.title("Policz produkcję")
-        self.root.geometry("800x600")
+        self.root.geometry("840x640")
         
         # --- Ustawienia czcionki ---
         self.default_font = ctk.CTkFont(family="Segoe UI", size=14)
@@ -482,7 +482,7 @@ class MainWindow:
             card.pack(fill="x", padx=10, pady=(0, 15))
 
             # Header karty (Nazwa maszyny)
-            header_row = ctk.CTkFrame(card, fg_color=("#e5e5e5", "#1f1f1f"), corner_radius=8, height=40)
+            header_row = ctk.CTkFrame(card, fg_color=("#e5e5e5", "#4D4C4C"), height=40)
             header_row.pack(fill="x")
             header_row.pack_propagate(False) # Blokuje zmianę wysokości
             
