@@ -728,8 +728,7 @@ class MainController:
                         if not ok:
                             return
             except json.JSONDecodeError:
-                # Tylko jeśli plik jest faktycznie uszkodzony technicznie
-                print("Snapshot uszkodzony - nadpisuję.")
+                pass
 
         # --- konstrukcja payloadu ---
         payload = {
