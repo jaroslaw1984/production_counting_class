@@ -281,6 +281,9 @@ class MainWindow:
         
     def show_machine_select_popup(self, machines: list[str], df_mc, on_confirm):
         MachineSelectPopup(self.root, machines, df_mc, on_confirm)
+        
+    def show_yes_no(self, title: str, message: str) -> bool:
+        return messagebox.askyesno(title, message)
 
     # --- Ten helper jest używany przy wczytywaniu danych z pliku Excel/CSV ---
     # - otwiera dialog wyboru pliku i zwraca ścieżkę do niego (lub None, jeśli użytkownik anulował) ---

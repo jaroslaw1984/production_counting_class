@@ -52,9 +52,7 @@ class MainController:
             
     # --- Obsługa wyboru maszyn ---
     def on_machines_selected(self, selected_machines, pps_by_machine, saturday_by_machine, sunday_by_machine, save_snapshot, changes, should_save_config):
-        print(f"Kontroler odebrał z popupu: Wybrano maszyn {len(selected_machines)}.")
-        
-        # Jeśli użytkownik kliknął "TAK" na pytanie o zapis zmian
+        # --- jeśli użytkownik kliknął "TAK" na pytanie o zapis zmian ---
         if should_save_config and changes:
             df_mc_df = self.state.machine_cfg.copy()
             for m, _, new_val in changes:
@@ -87,36 +85,54 @@ class MainController:
                 pps_by_machine,
                 saturday_by_machine,
                 sunday_by_machine,
+                save_snapshot,
                 params,
             )
         )
     
     # --- Obsługa generowania raportu z pliku ---    
     def handle_generate_report(self):
-            print("Kontroler: Rozpoczynam generowanie raportu...")
+        
+        # --- sprawdzamy, czy jest dzisiejszy snapshot ---
+        snap = self._load_snapshot_if_today()
+        
+        if not snap or not snap.get("end_by_machine"):
+            # --- jeśli brak snapshotu, przerywamy i wyświetlamy popup informacyjny ---
+            self.view.show_warning(
+                "Brak porannego zapisu (Snapshot)",
+                "Nie znaleziono zapisanych terminów zakończenia produkcji z dzisiejszą datą.\n\n"
+                "Wykonaj poszczególne kroki:\n"
+                "1) Wczytaj maszyny\n"
+                "2) Przelicz produkcję wszystkich maszyn z zaznaczoną opcją 'Zapisz terminy'"
+            )
+            return  # <-- Blokada dalszego wykonania!
+
+        # --- skoro mamy snapshot, zapisujemy daty do stanu aplikacji ---
+        self.state.end_by_machine = snap["end_by_machine"]
+        self.state.production_calculated = True
+        
+        # --- Poproś widok o ścieżkę do pliku ---
+        file_path = self.view.ask_for_file_path(title="Wczytaj eksport Hydry (.xlsx/.csv)")
+        
+        # --- Zabezpieczenie przed anulowaniem ---
+        if file_path is None: return
+        
+        # --- Jeśli mamy ścieżkę, przekaż ją do naszego nowego, wspólnego "silnika" ---
+        self._load_hydra_file(file_path)
+        
+        # --- sprawdzmy czy wczytywanie się udało (czy stany nie są puste) ---
+        if self.state.df_hydra is None or self.state.smart_plan_df is None:
+        # --- wczytywanie padło (błąd został już wyświetlony przez _load_hydra_file) ---  
+            return
+        
+        try:
+            self.machines = fetch_available_machines()
+        except Exception as e:
+            self.view.show_error("Błąd generowania raportu", str(e))
             
-            # --- Poproś widok o ścieżkę do pliku ---
-            file_path = self.view.ask_for_file_path(title="Wczytaj eksport Hydry (.xlsx/.csv)")
-            
-            # --- Zabezpieczenie przed anulowaniem ---
-            if file_path is None: return
-            
-            # --- Jeśli mamy ścieżkę, przekaż ją do naszego nowego, wspólnego "silnika" ---
-            self._load_hydra_file(file_path)
-            
-            # --- sprawdzmy czy wczytywanie się udało (czy stany nie są puste) ---
-            if self.state.df_hydra is None or self.state.smart_plan_df is None:
-            # --- wczytywanie padło (błąd został już wyświetlony przez _load_hydra_file) ---  
-                return
-            
-            try:
-                self.machines = fetch_available_machines()
-            except Exception as e:
-                self.view.show_error("Błąd generowania raportu", str(e))
-                
-            machines = sorted({machine.strip() for machine in self.machines if str(machine).strip()})
-            
-            self.view.show_report_params_popup(machines, self.on_report_params_selected)
+        machines = sorted({machine.strip() for machine in self.machines if str(machine).strip()})
+        
+        self.view.show_report_params_popup(machines, self.on_report_params_selected)
     
     # --- Obsługa drukowania raportu ---               
     def handle_print_report(self):
@@ -420,38 +436,33 @@ class MainController:
         pps_by_machine: dict[str, int], 
         saturday_by_machine: dict[str, bool], 
         sunday_by_machine: dict[str, bool], 
+        save_snapshot_flag: bool,  # <--- DODANE: odbieramy flagę
         params: dict
         ):
         """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie z wyborem daty i zmiany."""
-        # 1. Przetwarzamy parametry z drugiego popupu (Harmonogramu)
+        # --- przetwarzamy parametry z drugiego popupu (Harmonogramu) ---
         s_shift = params["start_shift"]
         
         if params["start_mode"] == "today":
             s_date = date.today()
         else:
-            # Data z popupu przychodzi jako string "YYYY-MM-DD"
             s_date = datetime.strptime(params["start_date"], "%Y-%m-%d").date()
 
         try:
-            # 1. Pobierasz surowe dane (niemieckie nazwy)
             df_raw = fetch_orders_for_machines(selected_machines)
-            df_orders = normalize_db_df(df_raw)
-            
             df_profiles = pd.read_csv(CONFING_PATH, sep=";", encoding="utf-8")
             
             if df_raw is None or df_raw.empty:
                 self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń.")
                 return   
                      
-            # 2. Pobieramy zlecenia z bazy danych dla wybranych maszyn           
             df_orders = normalize_db_df(df_raw)
             
             if df_orders is None or df_orders.empty:
                 self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń dla tych maszyn.")
                 return
 
-            # 3. Wywołujemy nasz silnik obliczeń z db_calc.py
-            # Przekazujemy: df zleceń, konfigurację maszyn ze stanu, parametry wybrane przez użytkownika
+            # --- wywołujemy nasz silnik obliczeń z db_calc.py ---
             report_text = build_db_report_pieces(
                 df=df_orders,
                 df_cfg=df_profiles,
@@ -463,13 +474,39 @@ class MainController:
                 sunday_by_machine=sunday_by_machine,
             )
 
-            # 4. Wyświetlamy raport w głównym oknie
-            # WAŻNE: Zapisujemy czysty tekst do stanu do ew. drukowania!
+            # --- wyświetlamy raport w głównym oknie ---
             self.state.last_report_text = report_text 
             self.view.render_db_report_cards(report_text)
             
             self.state.last_report_kind = "db"
             self.view.set_print_button_visibility(True)
+
+            # --- wyciągamy z wygenerowanego tekstu raportu daty zakończenia poszczególnych maszyn ---
+            end_by_machine = {}
+            current_machine = None
+
+            for line in report_text.splitlines():
+                m = re.match(r"^===\s*(.+?)\s*===$", line.strip())
+                if m:
+                    current_machine = m.group(1).strip()
+                    continue
+
+                if current_machine and line.strip().startswith("Przewidywana produkcja do:"):
+                    end_by_machine[current_machine] = line.strip()
+
+            # Zapisujemy do stanu aplikacji
+            self.state.end_by_machine = end_by_machine
+            self.state.production_calculated = True
+            
+            # Jeśli user zaznaczył "Zapisz terminy" (save_snapshot_flag), zapisujemy na dysk (%APPDATA%)
+            if save_snapshot_flag:
+                self.save_snapshot(
+                    end_by_machine=end_by_machine,
+                    meta={
+                        "selected_machines": selected_machines,
+                        "info": "Poranny snapshot z harmonogramu produkcji"
+                    }
+                )
 
         except Exception as e:
             self.view.show_error("Błąd obliczeń", f"Wystąpił problem podczas generowania raportu:\n{e}")
@@ -658,3 +695,66 @@ class MainController:
             print(f"Błąd odczytu snapshotu: {e}")
             
         return f"{date.today().strftime('%d.%m.%Y')} (zmiana 1) - błąd odczytu"
+    
+    # --- OBSŁUGA SNAPSHOTÓW (ZAPIS / WCZYTYWANIE) ---
+
+    def _get_app_data_dir(self) -> Path:
+        # --- zwraca i w razie potrzeby tworzy folder aplikacji w %APPDATA%.---
+        base = Path(os.getenv("APPDATA") or Path.home())
+        app_dir = base / "ProductionCounter"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        return app_dir
+
+    def _snapshot_path(self) -> Path:
+        # --- zwraca pełną ścieżkę do pliku snapshotu. ---
+        return self._get_app_data_dir() / "production_snapshot.json"
+
+    def save_snapshot(self, end_by_machine: dict[str, str], meta: dict | None = None) -> None:
+        # --- zapisuje wyliczone daty zakończenia do pliku JSON. ---
+        path = self._snapshot_path()
+        today = date.today().isoformat()
+        
+        if path.exists():
+            try:
+                content = path.read_text(encoding="utf-8")
+                if content.strip(): # Sprawdzamy czy plik nie jest pusty
+                    existing = json.loads(content)
+                    if existing.get("snapshot_date") == today:
+                        # Teraz ta metoda już istnieje w widoku!
+                        ok = self.view.show_yes_no(
+                            "Snapshot już istnieje",
+                            "Snapshot na dzisiaj już istnieje.\nCzy chcesz go nadpisać?"
+                        )
+                        if not ok:
+                            return
+            except json.JSONDecodeError:
+                # Tylko jeśli plik jest faktycznie uszkodzony technicznie
+                print("Snapshot uszkodzony - nadpisuję.")
+
+        # --- konstrukcja payloadu ---
+        payload = {
+            "snapshot_date": today,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "end_by_machine": end_by_machine,
+            "meta": meta or {},
+        }
+        
+        # --- zapis do pliku (zastępuje stary plik z tego samego dnia bez pytania) --- 
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _load_snapshot_if_today(self) -> dict | None:
+        # --- ładuje snapshot tylko jeśli pochodzi z dzisiejszego dnia. W przeciwnym razie zwraca None. ---
+        path = self._snapshot_path()
+        if not path.exists():
+            return None
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+        # --- walidacja daty - musi być z dzisiaj ---
+        if data.get("snapshot_date") != date.today().isoformat():
+            return None
+
+        return data
