@@ -1,14 +1,13 @@
 from project.core.logic.db_calc import build_db_report_pieces
 from project.config.workplace_config_provider import merge_db_and_csv_config
-from project.config.db_loader import fetch_available_machines
 from project.config.count_per_loader import update_count_by_shift
 from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
-from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines
-from project.config.db_loader import fetch_orders_for_machines, normalize_db_df
+from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines, normalize_db_df 
 from project.core.logic.docx_export import export_report_docx
 from project.core.logic.smart_matcher import SmartPlanMatcher
 from project.config.paths import CONFING_PATH
+from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
 from pathlib import Path
 from datetime import datetime, date
 import pandas as pd
@@ -513,6 +512,94 @@ class MainController:
         except Exception as e:
             self.view.show_error("Błąd obliczeń", f"Wystąpił problem podczas generowania raportu:\n{e}")
             traceback.print_exc()
+            
+    def handle_confirm_order(self):
+        try:
+            # 1. Wybór pliku
+            file_path = self.view.ask_for_file_path(title="Wybierz plik (Excel/CSV)")
+            if not file_path: return
+
+            # 2. Wczytanie pliku naszym menedżerem (wyciągnie od razu Smart Plan)
+            self._load_hydra_file(file_path)
+            df = self.state.smart_plan_df
+
+            if df is None or df.empty:
+                self.view.show_error("Brak danych", "Nie udało się wyciągnąć planu produkcji z wybranego pliku.")
+                return
+
+            # 3. Zlecenie od usera
+            order_id = self.view.ask_order_id_popup()
+            if not order_id: return
+
+            # 4. Utnij dane od początku do wskazanego zlecenia (włącznie)
+            try:
+                df_cut = self._cut_until_order(df, order_id)
+            except Exception as e:
+                self.view.show_error("Nie znaleziono zlecenia", str(e))
+                return
+
+            # 5. Sprawdź maszynę (musi być jedna)
+            workplaces = df_cut["workplace"].dropna().astype("string").str.strip().unique()
+            if len(workplaces) != 1:
+                self.view.show_error("Wybór maszyny", f"W danych wykryto wiele maszyn: {list(workplaces)}")
+                return
+            workplace = workplaces[0]
+
+            # 6. Wczytanie konfiguracji maszyny
+            # --- POPRAWKA: Ładujemy konfigurację maszyn, jeśli w pamięci programu jest pusta ---
+            if self.state.machine_cfg is None or self.state.machine_cfg.empty:
+                df_cfg_mc, source, missing = merge_db_and_csv_config(sync_missing_to_db=False)
+                self.state.machine_cfg = df_cfg_mc
+                self.state.machine_cfg_source = source
+
+            df_mc = self.state.machine_cfg
+            if df_mc is None or df_mc.empty:
+                self.view.show_error("Brak konfiguracji", "Nie udało się wczytać konfiguracji maszyn.")
+                return
+
+            row = df_mc.loc[df_mc["workplace"].astype("string").str.strip() == str(workplace).strip()]
+            if row.empty:
+                self.view.show_error("Brak konfiguracji", f"Nie znaleziono maszyny '{workplace}' w konfiguracji.")
+                return
+            
+            default_speed = float(row.iloc[0]["speed_m_per_min"])
+            default_pps = int(row.iloc[0]["count_by_shift"])
+
+            # 7. Zapytaj usera o tryb obliczeń (kolejny Popup)
+            choice = self.view.ask_calc_mode_popup(workplace, default_speed, default_pps)
+            if not choice: return
+
+            # 8. Opcjonalny zapis zmienionych parametrów maszyny
+            mask = df_mc["workplace"].astype("string").str.strip() == str(workplace).strip()
+            if choice["mode"] == "speed":
+                new_speed = float(choice["speed_m_per_min"])
+                if abs(new_speed - default_speed) > 1e-9:
+                    if self.view.show_yes_no("Zapis do konfiguracji", "Zmieniono prędkość. Zapisać zmiany?"):
+                        df_mc.loc[mask, "speed_m_per_min"] = new_speed
+                        df_mc.to_csv(MACHINE_CONFIG_PATH, sep=";", index=False, encoding="utf-8")
+                        self.state.machine_cfg = df_mc
+            elif choice["mode"] == "shift":
+                new_pps = int(choice["pieces_per_shift"])
+                if new_pps != default_pps:
+                    if self.view.show_yes_no("Zapis do konfiguracji", "Zmieniono szt./zmianę. Zapisać zmiany?"):
+                        df_mc.loc[mask, "count_by_shift"] = new_pps
+                        df_mc.to_csv(MACHINE_CONFIG_PATH, sep=";", index=False, encoding="utf-8")
+                        self.state.machine_cfg = df_mc
+
+            # 9. Skomplikowana kalkulacja wyników (Teraz zwraca słownik z danymi!)
+            df_cfg = pd.read_csv(CONFING_PATH, sep=";", encoding="utf-8")
+            result_data = self._calculate_confirmation_result(df_cut, df_cfg, workplace, order_id, choice)
+
+            # 10. Wyświetlenie wyniku na specjalnej Karcie
+            if result_data:
+                self.state.last_report_kind = None  
+                self.view.set_print_button_visibility(False)
+                self.view.render_order_confirmation_card(result_data) # <--- ZMIANA NA NOWĄ METODĘ
+
+        except Exception as e:
+            # PANCERNA OSŁONA: Jeśli cokolwiek wybuchnie, program pokaże okienko, a nie tylko zniknie!
+            self.view.show_error("Nieoczekiwany błąd", f"Wystąpił problem:\n{e}")
+            traceback.print_exc()
         
 
     # # # # # # # # # # # # # # # # # # # # # # # #
@@ -759,3 +846,102 @@ class MainController:
             return None
 
         return data
+    
+    def _cut_until_order(self, df: pd.DataFrame, order_id: str) -> pd.DataFrame:
+        """Obcina DataFrame od początku do podanego zlecenia (włącznie)."""
+        if "order_id" not in df.columns:
+            raise ValueError("Brak kolumny order_id w danych.")
+
+        want = self._normalize_order_id(order_id)
+        tmp = df.copy()
+        tmp["_ord_norm"] = tmp["order_id"].astype("string").apply(self._normalize_order_id)
+
+        hits = tmp.index[tmp["_ord_norm"] == want].tolist()
+        if not hits:
+            sample = tmp["order_id"].head(10).tolist()
+            raise ValueError(f"Nie znaleziono zlecenia: {order_id}\n(pierwsze zlecenia to np.: {sample})")
+
+        last_idx = hits[-1]
+        return df.loc[:last_idx].reset_index(drop=True)
+
+    def _calculate_confirmation_result(self, dfx: pd.DataFrame, df_cfg: pd.DataFrame, workplace: str, order_id: str, choice: dict) -> dict:
+        """Silnik liczący czas dla Potwierdzenia Zlecenia."""
+        df_cfg["profile"] = df_cfg["profile"].astype("string").str.strip()
+        df_cfg["side"] = df_cfg["side"].astype("string").str.strip().str.zfill(4)
+        df_cfg["setting_time"] = pd.to_numeric(df_cfg["setting_time"], errors="coerce")
+        
+        profile_col = "profile_full" if "profile_full" in dfx.columns else "profile"
+        dfx["profile"] = dfx[profile_col].astype("string").str.strip()
+        if "side" not in dfx.columns:
+            dfx["side"] = "0021" # Default
+        else:
+            dfx["side"] = dfx["side"].astype("string").str.strip().str.replace(r"\.0$", "", regex=True).str.zfill(4)
+
+        dfx = dfx.merge(df_cfg[["profile", "side", "setting_time"]], on=["profile", "side"], how="left")
+        
+        dfx.loc[dfx["side"] == "0020", "setting_time"] = 0
+
+        # Metry pozostałe (Z poprawką pd.Series aby uniknąć błędu fillna)
+        target_p = pd.to_numeric(dfx.get("target_value_p", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+        good_p = pd.to_numeric(dfx.get("good_qty_p", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+        unit = dfx.get("unit_p", pd.Series(["M"]*len(dfx))).astype("string").str.strip().str.upper()
+
+        remaining_p = target_p.copy()
+        mask_started = good_p > 0
+        remaining_p.loc[mask_started] = (target_p - good_p).clip(lower=0.0)
+        dfx["length_m"] = remaining_p.where(unit == "M", 0.0)
+        total_m = float(dfx["length_m"].sum())
+
+        # Sztuki (Z poprawką pd.Series)
+        pieces = pd.to_numeric(dfx.get("target_value_s", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+        total_pieces = float(pieces.sum())
+
+        unique_setups = dfx[["profile", "side", "setting_time"]].drop_duplicates(subset=["profile", "side"])
+        real_setups = unique_setups[unique_setups["setting_time"] > 0]
+        total_setting_min = float(real_setups["setting_time"].sum())
+
+        total_run_min = 0.0
+        run_mode_line = ""
+
+        if choice["mode"] == "speed":
+            speed = float(choice["speed_m_per_min"])
+            total_run_min = total_m / speed if speed > 0 else 0.0
+            run_mode_line = f"Tryb przeliczania: {speed:.2f} m/min\n"
+        else:
+            pps = int(choice["pieces_per_shift"])
+            shifts_needed = (total_pieces / pps) if pps > 0 else 0.0
+            total_run_min = shifts_needed * 8.0 * 60.0
+            run_mode_line = f"Tryb przeliczania: {pps} szt./zmianę\n"
+
+        total_min = total_setting_min + total_run_min
+        shifts = (total_min / 60.0) / 8.0
+        rounded_shifts = round_shifts_custom(shifts)
+
+        calendar_mode = choice.get("calendar", "workdays")
+        include_weekends = (calendar_mode == "all") 
+        start_shift = int(choice.get("start_shift", 1))
+
+        start_mode = choice.get("start_mode", "today")
+        start_date_str = choice.get("start_date", date.today().isoformat())
+        start_d = date.today() if start_mode != "date" else datetime.strptime(start_date_str, "%Y-%m-%d").date()
+
+        end_d, end_s = add_shifts(
+            start_date=start_d,
+            start_shift=start_shift,
+            shifts_count=rounded_shifts,
+            work_saturday=include_weekends,   
+            work_sunday=include_weekends    
+        )
+
+        # (reszta metody _calculate_confirmation_result pozostaje bez zmian, podmieniasz tylko return na dole)
+        return {
+            "title": "POTWIERDZENIE TERMINU ZLECENIA",
+            "machine": workplace,
+            "order": order_id,
+            "details": [
+                ("Zmiany (8h)", f"{shifts:.2f} → {rounded_shifts}"),
+                ("Tryb przeliczania", run_mode_line.replace('Tryb przeliczania:', '').strip()),
+                ("Start liczenia", f"{pl_weekday_name(start_d)} ({start_d.isoformat()}) zmiana {start_shift}")
+            ],
+            "end": f"{pl_weekday_name(end_d)} (zmiana {end_s}) ({end_d.strftime('%d.%m.%Y')})"
+        }

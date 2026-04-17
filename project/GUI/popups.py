@@ -786,8 +786,7 @@ class HelpWindow(ctk.CTkToplevel):
 
     def _apply_help_theme(self):
         """Zmiana kolorów zaleznie od trybu (Jasny/Ciemny)"""
-        self.header_title
-        
+             
         mode = ctk.get_appearance_mode()  # "Dark" / "Light"
         if mode == "Light":
             bg = "#f2f2f2"
@@ -981,5 +980,149 @@ class SchedulePopup(ctk.CTkToplevel):
         }
         
         # --- wywołanie callbacka (przekazanie wyniku do kontrolera) ---
+        self.on_confirm(result)
+        self.destroy()
+        
+class OrderIdPopup(ctk.CTkToplevel):
+    def __init__(self, parent, on_confirm):
+        super().__init__(parent)
+        self.title("Potwierdź termin zlecenia")
+        self.resizable(False, False)
+        self.grab_set()
+        self.on_confirm = on_confirm
+        
+        self._build_ui()
+        center_popup(parent, self)
+
+    def _build_ui(self):
+        ctk.CTkLabel(self, text="Znajdź zlecenie aby sprawdzić datę zakończenia:").pack(padx=12, pady=(12, 6))
+        
+        vcmd = (self.register(self._only_digits), "%P")        
+        self.v = tk.StringVar(value="")
+        entry = ctk.CTkEntry(self, textvariable=self.v, width=320, validate="key", validatecommand=vcmd)
+        entry.pack(padx=12, pady=(0, 10))
+        entry.focus_set()
+
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill="x", padx=12, pady=(0, 12))
+        ctk.CTkButton(btns, text="Anuluj", command=self.destroy).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right")
+
+    def _only_digits(self, new_value: str) -> bool:
+        return new_value.isdigit() or new_value == ""
+
+    def _on_ok(self):
+        val = (self.v.get() or "").strip()
+        if not val:
+            messagebox.showwarning("Brak zlecenia", "Wpisz numer zlecenia.")
+            return
+        if not val.isdigit():
+            messagebox.showwarning("Błąd", "Zlecenie musi składać się z cyfr.")
+            return
+        self.on_confirm(val)
+        self.destroy()
+
+
+class CalcModePopup(ctk.CTkToplevel):
+    def __init__(self, parent, workplace: str, default_speed: float, default_pieces_per_shift: int, on_confirm):
+        super().__init__(parent)
+        self.title("Parametry przeliczenia produkcji")
+        self.grab_set()
+        self.on_confirm = on_confirm
+        
+        self.workplace = workplace
+        self.default_speed = default_speed
+        self.default_pieces_per_shift = default_pieces_per_shift
+        
+        self.calendar_var = tk.StringVar(value="workdays")
+        self.start_shift_var = tk.IntVar(value=1) 
+        self.start_mode_var = tk.StringVar(value="today")
+        self.start_date_var = tk.StringVar(value=date.today().isoformat())
+        self.mode_var = tk.StringVar(value="shift")
+        
+        self._build_ui()
+        center_popup(parent, self)
+
+    def _build_ui(self):
+        ctk.CTkLabel(self, text=f"Stanowisko: {self.workplace}", font=ctk.CTkFont(size=16, weight="bold")).pack(padx=16, pady=(14, 6), anchor="w")
+
+        frame = ctk.CTkFrame(self)
+        frame.pack(fill="both", expand=True, padx=16, pady=10)
+
+        row1 = ctk.CTkFrame(frame)
+        row1.pack(fill="x", padx=10, pady=(10, 6))
+        
+        row2 = ctk.CTkFrame(frame)
+        row2.pack(fill="x", padx=10, pady=6)
+                
+        spacer = ctk.CTkFrame(frame, height=12, fg_color="transparent")
+        spacer.pack(fill="x")
+
+        row_cal = ctk.CTkFrame(frame)
+        row_cal.pack(fill="x", padx=10, pady=(20, 6))
+        
+        row_start = ctk.CTkFrame(frame)
+        row_start.pack(fill="x", padx=10, pady=6)
+        
+        row_startdate = ctk.CTkFrame(frame)
+        row_startdate.pack(fill="x", padx=10, pady=6)
+        
+        # --- Start daty ---
+        ctk.CTkLabel(row_startdate, text="Start liczenia:").pack(side="left")
+        ctk.CTkRadioButton(row_startdate, text="od dziś", variable=self.start_mode_var, value="today").pack(side="left", padx=10)
+        ctk.CTkRadioButton(row_startdate, text="od daty", variable=self.start_mode_var, value="date").pack(side="left", padx=10)
+        
+        self.date_entry = ctk.CTkEntry(row_startdate, width=130, textvariable=self.start_date_var)
+        self.date_entry.pack(side="left", padx=10)
+        ctk.CTkLabel(row_startdate, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left")        
+        
+        # --- Tryby ---
+        ctk.CTkRadioButton(row2, text="Przelicz przez szt./zmianę:", variable=self.mode_var, value="shift").pack(side="left")
+        self.pshift_var = tk.StringVar(value=str(self.default_pieces_per_shift))
+        ctk.CTkEntry(row2, width=120, textvariable=self.pshift_var).pack(side="left", padx=10)
+        
+        ctk.CTkRadioButton(row1, text="Przelicz przez prędkość (m/min):", variable=self.mode_var, value="speed").pack(side="left")
+        self.speed_var = tk.StringVar(value=str(self.default_speed))
+        ctk.CTkEntry(row1, width=120, textvariable=self.speed_var).pack(side="left", padx=10)
+
+        # --- Zmiana i Kalendarz ---
+        ctk.CTkLabel(row_start, text="Start od zmiany:").pack(side="left")
+        for val in [1, 2, 3]:
+            ctk.CTkRadioButton(row_start, text=str(val), variable=self.start_shift_var, value=val).pack(side="left", padx=10)
+
+        ctk.CTkLabel(row_cal, text="Kalendarz:").pack(side="left")
+        ctk.CTkRadioButton(row_cal, text="dni robocze", variable=self.calendar_var, value="workdays").pack(side="left", padx=10)
+        ctk.CTkRadioButton(row_cal, text="dni robocze + weekendy", variable=self.calendar_var, value="all").pack(side="left", padx=10)
+        
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill="x", padx=16, pady=14)
+        ctk.CTkButton(btns, text="Anuluj", command=self.destroy).pack(side="right")
+        ctk.CTkButton(btns, text="OK", command=self._on_ok).pack(side="right", padx=10)
+
+    def _parse_float(self, s: str) -> float:
+        return float(s.replace(",", ".").strip())
+
+    def _on_ok(self):
+        try:
+            result = {}
+            if self.mode_var.get() == "speed":
+                v = self._parse_float(self.speed_var.get())
+                if v <= 0: raise ValueError("Prędkość musi być > 0.")
+                result = {"mode": "speed", "speed_m_per_min": v}
+            else:
+                v = int(self._parse_float(self.pshift_var.get()))
+                if v <= 0: raise ValueError("Sztuki na zmianę muszą być > 0.")
+                result = {"mode": "shift", "pieces_per_shift": v}
+                
+            result.update({
+                "calendar": self.calendar_var.get(),
+                "start_shift": int(self.start_shift_var.get()),
+                "start_mode": self.start_mode_var.get(),
+                "start_date": self.start_date_var.get()
+            })
+        except Exception as e:
+            messagebox.showerror("Błędna wartość", str(e))
+            return
+        
         self.on_confirm(result)
         self.destroy()

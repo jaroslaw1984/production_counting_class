@@ -4,6 +4,7 @@ from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, Sched
 from project.GUI.popups import ReportParamsPopup
 from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
+from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, ReportParamsPopup, OrderIdPopup, CalcModePopup
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -168,6 +169,7 @@ class MainWindow:
 
     def show_welcome_screen(self):
         self.welcome_frame.grid(row=1, column=0, sticky="nsew")
+        self.welcome_frame.tkraise()
         
     def hide_welcome_screen(self):
         # Chowamy ramkę startową
@@ -249,10 +251,11 @@ class MainWindow:
         self.show_welcome_screen()
 
     def _cleanup_table(self):
-        """Pancerne usuwanie widoków raportów."""
+        """Pancerne usuwanie widoków raportów bez bugów CustomTkinter."""
         if hasattr(self, "table_frame") and self.table_frame is not None:
             try:
-                self.table_frame.grid_forget() # Wymusza zdjęcie ze sceny
+                # UWAGA: Celowo nie używamy tu grid_forget(), bo generuje 
+                # błędy z CTkScrollableFrame. Samo destroy() jest w 100% bezpieczne.
                 if self.table_frame.winfo_exists():
                     self.table_frame.destroy()
             except Exception:
@@ -301,34 +304,97 @@ class MainWindow:
     def show_report_params_popup(self, machines: list[str], on_confirm):
         ReportParamsPopup(self.root, machines, on_confirm)
         
-    def set_report_text(self, text):
-        self._cleanup_table() 
-        self.hide_welcome_screen() 
-        
-        # Używamy zaufanego ScrollableFrame zamiast brzydkiego textarea
-        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
-        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+    def render_order_confirmation_card(self, data: dict):
+            """Renderuje elegancką kartę dla potwierdzenia terminu zlecenia."""
+            self._cleanup_table()
+            self.hide_welcome_screen()
 
-        # Tworzymy elegancką kartę dla podsumowania
-        card = ctk.CTkFrame(self.table_frame, fg_color=("#f2f2f2", "#242424"), corner_radius=10)
-        card.pack(pady=20, padx=20, fill="x")
+            self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+            self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
-        # Formatujemy tekst czcionką stałoszerokościową, by wszystko było równiutko
-        lbl = ctk.CTkLabel(
-            card,
-            text=text,
-            font=ctk.CTkFont(family="Consolas", size=14), 
-            justify="left",
-            text_color=("#111111", "#e0e0e0")
-        )
-        lbl.pack(pady=20, padx=20, anchor="w")
+            # --- NAGŁÓWEK GŁÓWNY ---
+            header_lbl = ctk.CTkLabel(
+                self.table_frame, 
+                text=data.get("title", "POTWIERDZENIE TERMINU ZLECENIA"), 
+                font=ctk.CTkFont(size=18, weight="bold")
+            )
+            header_lbl.pack(anchor="w", pady=(10, 15), padx=10)
+
+            # --- Tło karty ---
+            card = ctk.CTkFrame(self.table_frame, fg_color=("#f2f2f2", "#242424"), corner_radius=8)
+            card.pack(fill="x", padx=10, pady=(0, 15))
+
+            # --- Header karty (Nazwa maszyny + Zlecenie) ---
+            header_row = ctk.CTkFrame(card, fg_color=("#e5e5e5", "#4D4C4C"), height=40)
+            header_row.pack(fill="x")
+            header_row.pack_propagate(False)
+            
+            lbl_name = ctk.CTkLabel(
+                header_row, 
+                text=f"Maszyna: {data['machine']}   |   Zlecenie: {data['order']}", 
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color=("#1f6aa5", "#7ba1c7")
+            )
+            lbl_name.pack(side="left", padx=15)
+
+            # --- Kontener na szczegóły ---
+            content_frame = ctk.CTkFrame(card, fg_color="transparent")
+            content_frame.pack(fill="x", padx=15, pady=10)
+
+            # Parametry w pętli
+            for key, val in data["details"]:
+                row = ctk.CTkFrame(content_frame, fg_color="transparent")
+                row.pack(fill="x", pady=4)
+                
+                lbl_k = ctk.CTkLabel(
+                    row, text=key + ":", 
+                    font=ctk.CTkFont(size=13), 
+                    text_color=("#555555", "#aaaaaa"), 
+                    width=170, 
+                    anchor="w"
+                )
+                lbl_k.pack(side="left")
+                
+                lbl_v = ctk.CTkLabel(
+                    row, text=val, 
+                    font=ctk.CTkFont(size=13, weight="bold"), 
+                    text_color=("#111111", "#ffffff"), 
+                    anchor="w"
+                )
+                lbl_v.pack(side="left", fill="x", expand=True)
+
+            # --- Stopka Terminu (Zielony akcent) ---
+            if data.get("end"):
+                end_frame = ctk.CTkFrame(card, fg_color=("#d4edda", "#1c3b24"), corner_radius=6)
+                end_frame.pack(fill="x", padx=15, pady=(5, 15))
+                
+                end_title = ctk.CTkLabel(
+                    end_frame, text="Zlecenie zakończy się:", 
+                    font=ctk.CTkFont(size=13), 
+                    text_color=("#155724", "#85c894")
+                )
+                end_title.pack(side="left", padx=10, pady=8)
+                
+                end_val = ctk.CTkLabel(
+                    end_frame, text=data["end"], 
+                    font=ctk.CTkFont(size=14, weight="bold"), 
+                    text_color=("#0c3815", "#a3e5b3")
+                )
+                end_val.pack(side="right", padx=10, pady=8)
         
     def show_schedule_popup(self, on_confirm):
         SchedulePopup(self.root, on_confirm)
-        
+           
     def render_sap_report_table(self, linia: str, day: str, rows: list[dict], user: str = ""):
         """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
         # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu bazy danych) ---
+        
+        self._cleanup_table()
+        self.hide_welcome_screen()
+
+        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        
         if hasattr(self, "table_frame") and self.table_frame:
             self.table_frame.destroy()
 
@@ -418,7 +484,12 @@ class MainWindow:
     def render_db_report_cards(self, report_text: str):
         """Renderuje eleganckie karty dla raportu z bazy danych (Wczytaj maszyny)."""
         # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu SAP) ---
+        # 1. Bezpiecznie usuwamy poprzednie widoki raportów, aby uniknąć błędów z CustomTkinter
         self._cleanup_table()
+        self.hide_welcome_screen()
+
+        self.table_frame = ctk.CTkScrollableFrame(self.right, fg_color="transparent")
+        self.table_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
             
         # 2. Resetujemy kontener, jeśli wcześniej był użyty (np. przez raport SAP)
         if hasattr(self, "table_frame") and self.table_frame:
@@ -552,3 +623,23 @@ class MainWindow:
                     text_color=("#0c3815", "#a3e5b3")
                 )
                 end_val.pack(side="right", padx=10, pady=8)
+                
+    def ask_order_id_popup(self) -> str | None:
+        """Wywouje popup pytający o zlecenie i zwraca wynik (lub None)."""
+        result = {"value": None}
+        def on_confirm(val):
+            result["value"] = val
+            
+        popup = OrderIdPopup(self.root, on_confirm=on_confirm)
+        self.root.wait_window(popup)
+        return result["value"]
+
+    def ask_calc_mode_popup(self, workplace: str, default_speed: float, default_pieces_per_shift: int) -> dict | None:
+        """Wywołuje popup wyboru trybu przeliczenia i zwraca słownik parametrów (lub None)."""
+        result = {"value": None}
+        def on_confirm(val):
+            result["value"] = val
+
+        popup = CalcModePopup(self.root, workplace, default_speed, default_pieces_per_shift, on_confirm=on_confirm)
+        self.root.wait_window(popup)
+        return result["value"]
