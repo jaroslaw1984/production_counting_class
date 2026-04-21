@@ -69,14 +69,23 @@ def build_db_report_pieces(
         df_one["setting_time"] = pd.to_numeric(df_one["setting_time"], errors="coerce").fillna(0).astype(int)
         
         # --- ZBROJENIA: liczymy ZMIANY w kolejności (bloki), nie unikalne wartości ---
-        # --- ważne: DB czasem nie jest posortowane – sortuj po zleceniu (jeśli masz) ---
+        # Wymuszamy twarde sortowanie, aby uniknąć przeplatania rekordów przez bazę SQL
         if "order_id" in df_one.columns:
-            # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej ---
+            # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej
             df_one["_order_num"] = (
                 df_one["order_id"].astype("string").str.replace(r"\.0$", "", regex=True).str.lstrip("0")
             )
             df_one["_order_num"] = pd.to_numeric(df_one["_order_num"], errors="coerce")
-            df_one = df_one.sort_values(["_order_num"], kind="stable").drop(columns=["_order_num"])
+            
+            # NOWE SORTOWANIE: Najpierw profil, potem strona, na końcu numer zlecenia
+            df_one = df_one.sort_values(
+                ["profile", "side", "_order_num"], 
+                kind="stable", 
+                na_position="first"
+            ).drop(columns=["_order_num"])
+        else:
+            # Sortowanie awaryjne, gdy brakuje order_id
+            df_one = df_one.sort_values(["profile", "side"], kind="stable")
 
         # --- klucz zbrojenia – zwykle profil+strona; jeśli strona zawsze 0020, i tak zadziała ---
         keys = list(zip(df_one["profile"].astype("string").str.strip(),
