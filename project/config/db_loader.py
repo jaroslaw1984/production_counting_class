@@ -1,10 +1,8 @@
 import pandas as pd
 import pyodbc
 import urllib.parse
-from datetime import date
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from project.config.paths import SERVER, DATABASE, SAP_SERVER, SAP_DATABASE, VIEW_FULLNAME
-from sqlalchemy import text
 
 
 
