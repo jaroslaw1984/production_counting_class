@@ -871,7 +871,7 @@ class MainController:
         df_cfg["setting_time"] = pd.to_numeric(df_cfg["setting_time"], errors="coerce")
         
         profile_col = "profile_full" if "profile_full" in dfx.columns else "profile"
-        dfx["profile"] = dfx[profile_col].astype("string").str.strip()
+        dfx["profile"] = dfx[profile_col].astype("string").str.strip().str.split("-", n=1).str[0]
         if "side" not in dfx.columns:
             dfx["side"] = "0021" # Default
         else:
@@ -896,9 +896,28 @@ class MainController:
         pieces = pd.to_numeric(dfx.get("target_value_s", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
         total_pieces = float(pieces.sum())
 
-        unique_setups = dfx[["profile", "side", "setting_time"]].drop_duplicates(subset=["profile", "side"])
-        real_setups = unique_setups[unique_setups["setting_time"] > 0]
-        total_setting_min = float(real_setups["setting_time"].sum())
+        # --- ZBROJENIA: liczymy ZMIANY w kolejności (plik zachowuje bloki!) ---
+        keys = list(zip(
+            dfx["profile"].astype("string").str.strip(),
+            dfx["side"].astype("string").str.strip().str.zfill(4)
+        ))
+
+        setup_count = 0
+        total_setting_min = 0.0
+        prev_key = None
+
+        for key, st in zip(keys, dfx["setting_time"].tolist()):
+            if prev_key is None:
+                # start – maszyna jest już uzbrojona na pierwszy profil
+                prev_key = key
+                continue
+            
+            if key != prev_key:
+                st_val = float(st or 0)
+                if st_val > 0:
+                    setup_count += 1
+                    total_setting_min += st_val
+                prev_key = key
 
         total_run_min = 0.0
         run_mode_line = ""

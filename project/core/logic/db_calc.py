@@ -45,7 +45,7 @@ def build_db_report_pieces(
 
         # --- zbrojenia (tak samo jak Excel) ---
         # normalizacja kluczy
-        df_one["profile"] = df_one["profile"].astype("string").str.strip()
+        df_one["profile"] = df_one["profile"].astype("string").str.strip().str.split("-", n=1).str[0]
         df_one["side"] = df_one["side"].astype("string").str.strip().str.zfill(4)
 
         cfg = df_cfg.copy()
@@ -68,39 +68,65 @@ def build_db_report_pieces(
 
         df_one["setting_time"] = pd.to_numeric(df_one["setting_time"], errors="coerce").fillna(0).astype(int)
         
-        # --- ZBROJENIA: liczymy ZMIANY w kolejności (bloki), nie unikalne wartości ---
-        # --- ważne: DB czasem nie jest posortowane – sortuj po zleceniu (jeśli masz) ---
+        # # --- ZBROJENIA: liczymy ZMIANY w kolejności (bloki), nie unikalne wartości ---
+        # # --- ważne: DB czasem nie jest posortowane – sortuj po zleceniu (jeśli masz) ---
+        # if "order_id" in df_one.columns:
+        #     # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej ---
+        #     df_one["_order_num"] = (
+        #         df_one["order_id"].astype("string").str.replace(r"\.0$", "", regex=True).str.lstrip("0")
+        #     )
+        #     df_one["_order_num"] = pd.to_numeric(df_one["_order_num"], errors="coerce")
+        #     df_one = df_one.sort_values(["_order_num"], kind="stable").drop(columns=["_order_num"])
+
+        # # --- klucz zbrojenia – zwykle profil+strona; jeśli strona zawsze 0020, i tak zadziała ---
+        # keys = list(zip(df_one["profile"].astype("string").str.strip(),
+        #                 df_one["side"].astype("string").str.strip().str.zfill(4)))
+
+        # setup_count = 0
+        # setup_min = 0.0
+
+        # prev_key = None
+        # for key, st in zip(keys, df_one["setting_time"].tolist()):
+        #     if prev_key is None:
+        #         # --- start – zakładamy, że pierwsze ustawienie już jest na maszynie (nie liczymy jako zbrojenie) ---
+        #         prev_key = key
+        #         continue
+
+        #     if key != prev_key:
+        #         st_val = float(st or 0)
+        #         if st_val > 0:
+        #             setup_count += 1
+        #             setup_min += st_val
+        #         prev_key = key
+
+        # setup_shifts = setup_min / (8 * 60)    
+        
+        # --- ZBROJENIA DLA BAZY SQL (Brak sekwencji Hydry) ---
         if "order_id" in df_one.columns:
-            # order_id bywa stringiem z zerami – normalizujemy do liczby pomocniczej ---
             df_one["_order_num"] = (
                 df_one["order_id"].astype("string").str.replace(r"\.0$", "", regex=True).str.lstrip("0")
             )
             df_one["_order_num"] = pd.to_numeric(df_one["_order_num"], errors="coerce")
             df_one = df_one.sort_values(["_order_num"], kind="stable").drop(columns=["_order_num"])
 
-        # --- klucz zbrojenia – zwykle profil+strona; jeśli strona zawsze 0020, i tak zadziała ---
-        keys = list(zip(df_one["profile"].astype("string").str.strip(),
-                        df_one["side"].astype("string").str.strip().str.zfill(4)))
+        # 1. Pobieramy pierwszy profil z listy (zakładamy, że maszyna jest już na niego uzbrojona)
+        first_prof = df_one["profile"].iloc[0] if not df_one.empty else None
+        first_side = df_one["side"].iloc[0] if not df_one.empty else None
 
-        setup_count = 0
-        setup_min = 0.0
+        # 2. Szukamy unikalnych zbrojeń (bo po posortowaniu SQL bloki są zniszczone)
+        unique_setups = df_one[["profile", "side", "setting_time"]].drop_duplicates(subset=["profile", "side"])
+        
+        # 3. Odrzucamy pierwsze zbrojenie (Twoja żelazna zasada z produkcji)
+        mask_is_first = (unique_setups["profile"] == first_prof) & (unique_setups["side"] == first_side)
+        real_setups = unique_setups[~mask_is_first]
 
-        prev_key = None
-        for key, st in zip(keys, df_one["setting_time"].tolist()):
-            if prev_key is None:
-                # --- start – zakładamy, że pierwsze ustawienie już jest na maszynie (nie liczymy jako zbrojenie) ---
-                prev_key = key
-                continue
-
-            if key != prev_key:
-                st_val = float(st or 0)
-                if st_val > 0:
-                    setup_count += 1
-                    setup_min += st_val
-                prev_key = key
-
-        setup_shifts = setup_min / (8 * 60)            
-
+        # 4. Liczymy tylko te z czasem > 0
+        real_setups = real_setups[real_setups["setting_time"] > 0]
+        
+        setup_count = int(real_setups["setting_time"].count())
+        setup_min = float(real_setups["setting_time"].sum())
+        setup_shifts = setup_min / (8 * 60)
+        
         # --- zmiany: produkcja + zbrojenia ---
         prod_shifts = total_remaining / pps if total_remaining > 0 else 0.0
         shifts_exact = prod_shifts + setup_shifts
