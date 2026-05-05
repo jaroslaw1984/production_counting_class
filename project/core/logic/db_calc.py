@@ -1,5 +1,3 @@
-from platform import machine
-
 import pandas as pd
 from datetime import date
 from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
@@ -131,10 +129,7 @@ def build_db_report_pieces(
         prod_shifts = total_remaining / pps if total_remaining > 0 else 0.0
         shifts_exact = prod_shifts + setup_shifts
         shifts_rounded = round_shifts_custom(shifts_exact)
-        
-        # Zamiast dodawać do zaokrąglonych zmian, dodaj do surowego wyniku (float)
-        buffer_shifts = 1 
-        shifts_count = shifts_rounded + buffer_shifts
+        shifts_count = shifts_rounded 
 
         # --- koniec produkcji dla tej maszyny ---
         end_d, end_s = add_shifts(

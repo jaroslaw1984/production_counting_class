@@ -232,10 +232,16 @@ class MainController:
                 matcher = SmartPlanMatcher(df_group, df_cut_plan, df_sap)
                 wynik = matcher.run_matching()
                 
-                blocks = wynik["blocks"]
-                lines = wynik["lines"]
                 rows = wynik["rows"]
                 missing_articles = wynik["missing_articles"]
+                
+                # ---------------------------------------
+                # DODANE: Pobranie dodatkowych danych z wyniku dopasowania (np. sap_user) i zapis do stanu
+                # blocks = wynik["blocks"]
+                # lines = wynik["lines"]
+                # testowy print do konsoli, żeby zobaczyć strukturę danych zwracanych przez matcher 
+                # print(lines)
+                # print(blocks)
                 
             except Exception as e:
                 self.view.show_error("Błąd generowania raportu (Smart Matcher)", str(e))
@@ -243,11 +249,12 @@ class MainController:
                 return
                 
             # --- 5. Logowanie do konsoli (zostawiamy dla testów) ---
+            """ testowy print do konsoli, żeby zobaczyć strukturę danych zwracanych przez matcher 
             print("\n=== Kolejność podstaw (Hydra) ===")
             for i, b in enumerate(blocks):
                 print(f'{i+1}. {b["gp"]} ({b["side"]})')
             print("=================================\n")
-            
+            """
             # --- DODANE: Pobranie brakujących danych ---
             sap_user = wynik.get("sap_user", "")
             shift_info = self._get_shift_info_from_snapshot(linia_value)
@@ -437,7 +444,7 @@ class MainController:
         pps_by_machine: dict[str, int], 
         saturday_by_machine: dict[str, bool], 
         sunday_by_machine: dict[str, bool], 
-        save_snapshot_flag: bool,  # <--- DODANE: odbieramy flagę
+        save_snapshot_flag: bool, 
         params: dict
         ):
         """Ta funkcja odpali się, gdy użytkownik kliknie OK w popupie z wyborem daty i zmiany."""
@@ -879,6 +886,8 @@ class MainController:
 
         dfx = dfx.merge(df_cfg[["profile", "side", "setting_time"]], on=["profile", "side"], how="left")
         
+        # --- ZABEZPIECZENIE: Zamieniamy NaN na 0 przed wejściem do pętli! ---
+        dfx["setting_time"] = pd.to_numeric(dfx["setting_time"], errors="coerce").fillna(0).astype(int)
         dfx.loc[dfx["side"] == "0020", "setting_time"] = 0
 
         # Metry pozostałe (Z poprawką pd.Series aby uniknąć błędu fillna)
@@ -892,9 +901,22 @@ class MainController:
         dfx["length_m"] = remaining_p.where(unit == "M", 0.0)
         total_m = float(dfx["length_m"].sum())
 
-        # Sztuki (Z poprawką pd.Series)
-        pieces = pd.to_numeric(dfx.get("target_value_s", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
-        total_pieces = float(pieces.sum())
+        # --- POPRAWNE ODLICZANIE SZTUK (Proporcja z metrów) ---
+        target_s = pd.to_numeric(dfx.get("target_value_s", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+        target_p = pd.to_numeric(dfx.get("target_value_p", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+        good_p = pd.to_numeric(dfx.get("good_qty_p", pd.Series(0.0, index=dfx.index)), errors="coerce").fillna(0.0)
+
+        # Maska dla rozpoczętych zleceń
+        mask_started = good_p > 0
+
+        # Obliczamy proporcję: ile zlecenia zostało do zrobienia (od 0.0 do 1.0)
+        # Używamy .replace(0, 1) żeby nie dzielić przez zero
+        ratio = pd.Series(1.0, index=dfx.index)
+        ratio.loc[mask_started] = ((target_p - good_p).clip(lower=0.0) / target_p.replace(0, 1)).loc[mask_started]
+
+        # Pozostałe sztuki to docelowe sztuki przemnożone przez pozostały procent
+        remaining_s = target_s * ratio
+        total_pieces = float(remaining_s.sum())
 
         # --- ZBROJENIA: liczymy ZMIANY w kolejności (plik zachowuje bloki!) ---
         keys = list(zip(
@@ -913,7 +935,7 @@ class MainController:
                 continue
             
             if key != prev_key:
-                st_val = float(st or 0)
+                st_val = float(st)
                 if st_val > 0:
                     setup_count += 1
                     total_setting_min += st_val
@@ -944,21 +966,25 @@ class MainController:
         start_date_str = choice.get("start_date", date.today().isoformat())
         start_d = date.today() if start_mode != "date" else datetime.strptime(start_date_str, "%Y-%m-%d").date()
 
+        # Obliczamy datę na podstawie surowych, zaokrąglonych zmian
+        shifts_count = rounded_shifts
+
         end_d, end_s = add_shifts(
             start_date=start_d,
             start_shift=start_shift,
-            shifts_count=rounded_shifts,
+            shifts_count=shifts_count,
             work_saturday=include_weekends,   
             work_sunday=include_weekends    
         )
 
-        # (reszta metody _calculate_confirmation_result pozostaje bez zmian, podmieniasz tylko return na dole)
         return {
             "title": "POTWIERDZENIE TERMINU ZLECENIA",
             "machine": workplace,
             "order": order_id,
             "details": [
-                ("Zmiany (8h)", f"{shifts:.2f} → {rounded_shifts}"),
+                ("Ilość zbrojeń profili", str(setup_count)),
+                ("Czas zbrojeń", f"{total_setting_min:.0f} min"),
+                ("Zmiany (8h)", f"{shifts:.2f} → {rounded_shifts}"), 
                 ("Tryb przeliczania", run_mode_line.replace('Tryb przeliczania:', '').strip()),
                 ("Start liczenia", f"{pl_weekday_name(start_d)} ({start_d.isoformat()}) zmiana {start_shift}")
             ],
