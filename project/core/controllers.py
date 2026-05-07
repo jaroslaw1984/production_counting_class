@@ -918,28 +918,18 @@ class MainController:
         remaining_s = target_s * ratio
         total_pieces = float(remaining_s.sum())
 
-        # --- ZBROJENIA: liczymy ZMIANY w kolejności (plik zachowuje bloki!) ---
-        keys = list(zip(
-            dfx["profile"].astype("string").str.strip(),
-            dfx["side"].astype("string").str.strip().str.zfill(4)
-        ))
+        # --- ZBROJENIA: analogicznie jak w db_calc.py (unikalne zbrojenia z odrzuceniem pierwszego) ---
+        first_prof = dfx["profile"].iloc[0] if not dfx.empty else None
+        first_side = dfx["side"].iloc[0] if not dfx.empty else None
 
-        setup_count = 0
-        total_setting_min = 0.0
-        prev_key = None
-
-        for key, st in zip(keys, dfx["setting_time"].tolist()):
-            if prev_key is None:
-                # start – maszyna jest już uzbrojona na pierwszy profil
-                prev_key = key
-                continue
-            
-            if key != prev_key:
-                st_val = float(st)
-                if st_val > 0:
-                    setup_count += 1
-                    total_setting_min += st_val
-                prev_key = key
+        unique_setups = dfx[["profile", "side", "setting_time"]].drop_duplicates(subset=["profile", "side"])
+        
+        mask_is_first = (unique_setups["profile"] == first_prof) & (unique_setups["side"] == first_side)
+        real_setups = unique_setups[~mask_is_first]
+        real_setups = real_setups[real_setups["setting_time"] > 0]
+        
+        setup_count = int(real_setups["setting_time"].count())
+        total_setting_min = float(real_setups["setting_time"].sum())
 
         total_run_min = 0.0
         run_mode_line = ""
