@@ -223,4 +223,47 @@ def fetch_sap_basic_profiles(linia: str, day) -> pd.DataFrame:
 
     return df
 
+def fetch_bom_for_articles(matnr_list: list) -> pd.DataFrame:
+    """Pobiera strukturę BOM z SAP/Kronosa dla zadanej listy artykułów."""
+    
+    if not matnr_list:
+        return pd.DataFrame()
+
+    # Formatuje listę jako zapytanie string np. '1001', '1002'
+    matnr_str = "', '".join([str(m).strip() for m in matnr_list])
+    
+    sql = f"""
+        SELECT MATNR, KOLOR, IDNRK, POSNR
+        FROM HANA_INDEKS_BOM_LINIA
+        WHERE MATNR IN ('{matnr_str}')
+          AND (IDNRK LIKE 'F%' OR POSNR IN ('0050', '0060'))
+        ORDER BY MATNR, POSNR
+    """
+    
+    engine = _get_sap_engine()
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql(text(sql), conn)
+        return df
+    except Exception as e:
+        print(f"SQL Error (BOM Kronos): {e}")
+        return pd.DataFrame()
+
+def set_foil_report_queued(machine_name: str) -> None:
+    """Powiadamia bazę (dodaje/aktualizuje wpis), że raport dla danej maszyny jest gotowy (status = 0)."""
+    sql = text("""
+        IF EXISTS (SELECT 1 FROM tblPlanowanieFoilReportsQueue WHERE machine_name = :m)
+            UPDATE tblPlanowanieFoilReportsQueue SET status = 0 WHERE machine_name = :m
+        ELSE
+            INSERT INTO tblPlanowanieFoilReportsQueue (machine_name, status) VALUES (:m, 0)
+    """)
+    
+    engine = _get_sap_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(sql, {"m": str(machine_name).strip()})
+    except Exception as e:
+        print(f"Błąd SQL (Kolejka folii Kronos): {e}")
+
+
     

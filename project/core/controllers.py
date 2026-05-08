@@ -1,13 +1,14 @@
 from project.core.logic.db_calc import build_db_report_pieces
 from project.config.workplace_config_provider import merge_db_and_csv_config
 from project.config.count_per_loader import update_count_by_shift
-from project.config.paths import MACHINE_CONFIG_PATH
+from project.config.paths import MACHINE_CONFIG_PATH, FOIL_REPORTS_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
 from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines, normalize_db_df 
 from project.core.logic.docx_export import export_report_docx
 from project.core.logic.smart_matcher import SmartPlanMatcher
 from project.config.paths import CONFING_PATH
 from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
+from project.config.db_loader import fetch_bom_for_articles, set_foil_report_queued
 from pathlib import Path
 from datetime import datetime, date
 import pandas as pd
@@ -217,6 +218,9 @@ class MainController:
                         f"Plan nie pasuje do startowego zlecenia.\nRaport wygeneruje się bez inteligentnego dopasowania (Fallback).\n\nSzczegóły: {str(e)}"
                     )
                     df_cut_plan = None
+
+            # Zapisujemy obcięty plan do stanu, żeby później wykorzystać go do folii
+            self.state.last_cut_plan_df = df_cut_plan
 
             # --- 3. Pobieranie SAP ---
             try:
@@ -980,3 +984,138 @@ class MainController:
             ],
             "end": f"{pl_weekday_name(end_d)} (zmiana {end_s}) ({end_d.strftime('%d.%m.%Y')})"
         }
+
+    # --- INTEGRACJA Z FOIL CUT REPORTER (JSON PAYLOAD) ---
+    def export_foil_report_to_json(self, machine_name: str, report_data: dict) -> None:
+        """Eksportuje gotowy, zagregowany raport folii do pliku JSON dla programu foil_cut_reporter."""
+        # Docelowo zmień tę ścieżkę na wspólny dysk sieciowy, np. Path(r"\\serwer\raporty_folie")
+        out_dir = Path(FOIL_REPORTS_PATH)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
+        safe_machine_name = str(machine_name).replace("/", "-").replace("\\", "-")
+        file_path = out_dir / f"{safe_machine_name}.json"
+        
+        payload = {
+            "machine": machine_name,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "data": report_data  # To będzie słownik: { 'outer_side': [...], 'inner_side': [...], 'protective': {...} }
+        }
+        
+        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=4), encoding="utf-8")
+        print(f"Wyeksportowano gotowy raport folii do {file_path}")
+        
+        # Powiadomienie bazy danych (Dla aplikacji foil_cut_reporter)
+        try:
+            set_foil_report_queued(machine_name)
+        except Exception as e:
+            print(f"Nie udało się dodać maszyny do bazy: {e}")
+        
+        # Automatyczne otwarcie folderu docelowego w systemie Windows po eksporcie
+        try:
+            os.startfile(out_dir)
+        except Exception:
+            pass
+
+    def handle_export_foil_report(self):
+        """Pobiera wczytany już plan, agreguje zapotrzebowanie BOM i zrzuca do JSON dla foil_cut_reporter."""
+        # Pobieramy ZAPAMIĘTANY obcięty plan ze stanu
+        df_plan = getattr(self.state, "last_cut_plan_df", None)
+        
+        # Fallback, jeśli obcięty nie istnieje, a wczytano pełny plik
+        if df_plan is None:
+            df_plan = self.state.smart_plan_df
+
+        if df_plan is None or df_plan.empty:
+            self.view.show_error("Brak danych", "Nie znaleziono wczytanego planu produkcji. Wygeneruj najpierw raport.")
+            return
+
+        # Ustalenie nazwy maszyny (preferowana z wygenerowanego raportu, fallback z planu)
+        machine_name = "Nieznana_Maszyna"
+        if self.state.last_report_data and "machine" in self.state.last_report_data:
+            machine_name = self.state.last_report_data["machine"]
+        elif "workplace" in df_plan.columns and not df_plan["workplace"].dropna().empty:
+            machine_name = str(df_plan["workplace"].iloc[0]).strip()
+
+        profile_col = "profile_full" if "profile_full" in df_plan.columns else "profile"
+        if profile_col not in df_plan.columns:
+            self.view.show_error("Błąd danych", f"Brak kolumny '{profile_col}' w planie.")
+            return
+            
+        matnr_list = df_plan[profile_col].dropna().unique().tolist()
+
+        # Pobranie BOM z Kronosa
+        try:
+            bom_df = fetch_bom_for_articles(matnr_list)
+        except ImportError:
+            self.view.show_error("Błąd Integracji", "Brak funkcji 'fetch_bom_for_articles' w 'db_loader.py'.")
+            return
+        except Exception as e:
+            self.view.show_error("Błąd bazy Kronos", str(e))
+            return
+
+        if bom_df.empty:
+            self.view.show_error("Brak struktury", "Nie znaleziono struktury BOM dla wczytanych artykułów.")
+            return
+
+        # 4. Agregacja logiki biznesowej folii
+        try:
+            report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col)
+            self.export_foil_report_to_json(machine_name, report_data)
+            
+            self.view.show_warning("Sukces", f"Pomyślnie wygenerowano i wyeksportowano zapotrzebowanie folii (JSON) dla maszyny:\n{machine_name}")
+        except Exception as e:
+            self.view.show_error("Błąd agregacji folii", str(e))
+            traceback.print_exc()
+
+    def _extract_width_and_type(self, idnrk: str):
+        """Dynamicznie wyciąga typ i szerokość z indeksu folii."""
+        idnrk = str(idnrk).strip()
+        parts = idnrk.split('.')
+        foil_prefix = parts[0]
+        try:
+            width = int(parts[-1])
+        except (ValueError, IndexError):
+            width = 0
+        return foil_prefix, width
+
+    def _aggregate_foil_requirements(self, df_plan: pd.DataFrame, bom_df: pd.DataFrame, profile_col: str) -> dict:
+        """Łączy produkcję bieżącą z BOM w jeden ustandaryzowany słownik folii."""
+        report_data = {'outer_side': [], 'inner_side': [], 'protective': {}}
+
+        for _, row in df_plan.iterrows():
+            matnr = str(row[profile_col]).strip()
+            
+            # Obliczanie pozostałych metrów (Docelowa - Wykonana)
+            target_m = float(row.get("target_value_p", 0.0))
+            good_m = float(row.get("good_qty_p", 0.0))
+            meters = max(0.0, target_m - good_m)
+            
+            if meters <= 0:
+                continue
+                
+            requirements = bom_df[bom_df['MATNR'] == matnr]
+            for _, bom_row in requirements.iterrows():
+                posnr = str(bom_row['POSNR']).strip()
+                idnrk = str(bom_row['IDNRK']).strip()
+                _, width = self._extract_width_and_type(idnrk)
+                
+                if posnr in ['0050', '0060']:
+                    report_data['protective'][idnrk] = report_data['protective'].get(idnrk, 0.0) + meters
+                elif posnr == '0030':
+                    self._add_to_foil_sequential_list(report_data['outer_side'], idnrk, width, meters, matnr)
+                elif posnr == '0020':
+                    self._add_to_foil_sequential_list(report_data['inner_side'], idnrk, width, meters, matnr)
+                        
+        return report_data
+
+    def _add_to_foil_sequential_list(self, target_list, idnrk, width, meters, geometry):
+        """Grupowanie ciągłych zleceń (sekwencyjnych) na tę samą folię i geometrię."""
+        if target_list and target_list[-1]['idnrk'] == idnrk and target_list[-1]['geometry'] == geometry:
+            target_list[-1]['meters'] += meters
+        else:
+            target_list.append({
+                'idnrk': idnrk,
+                'width': width,
+                'meters': meters,
+                'geometry': geometry
+            })

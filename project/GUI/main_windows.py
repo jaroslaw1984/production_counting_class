@@ -119,6 +119,10 @@ class MainWindow:
             self.action_frame, text="Drukuj raport", command=self.hanlde_print_report, width=140, height=35
         )
         
+        self.export_foil_btn = ctk.CTkButton(
+            self.action_frame, text="Wyślij na folie", command=self.export_foil_report, width=140, height=35
+        )
+        
         self._build_welcome_screen()
         
     def _build_welcome_screen(self):
@@ -184,6 +188,7 @@ class MainWindow:
                 # Najpierw bezwzględnie czyścimy układ, żeby zapobiec nakładaniu się przycisków (bug z CustomTkinter)
                 self.print_btn.pack_forget()
                 self.edit_btn.pack_forget()
+                self.export_foil_btn.pack_forget()
                 
                 # Pakujemy od prawej do lewej: najpierw "Drukuj" na sam prawy skraj
                 self.print_btn.pack(side="right")
@@ -191,6 +196,7 @@ class MainWindow:
                 # Jeśli to raport SAP, dokładamy "Edytuj" na lewo od przycisku drukowania (z małym odstępem)
                 if self.state.last_report_kind == "sap":
                     self.edit_btn.pack(side="right", padx=(0, 10))
+                    self.export_foil_btn.pack(side="right", padx=(0, 10))
             else:
                 self.action_frame.grid_remove()
 
@@ -232,6 +238,10 @@ class MainWindow:
         if hasattr(self, 'controller'):
             self.controller.handle_confirm_order()
             
+    def export_foil_report(self):
+        if hasattr(self, 'controller'):
+            self.controller.handle_export_foil_report()
+
     def hanlde_print_report(self):
         if hasattr(self, 'controller'):
             self.controller.handle_print_report()            
