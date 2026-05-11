@@ -17,6 +17,7 @@ import os
 import tempfile
 import re
 import json
+import threading
 
 class MainController:
     def __init__(self, state, view):
@@ -985,10 +986,9 @@ class MainController:
             "end": f"{pl_weekday_name(end_d)} (zmiana {end_s}) ({end_d.strftime('%d.%m.%Y')})"
         }
 
-    # --- INTEGRACJA Z FOIL CUT REPORTER (JSON PAYLOAD) ---
-    def export_foil_report_to_json(self, machine_name: str, report_data: dict) -> bool:
-        """Eksportuje gotowy, zagregowany raport folii do pliku JSON.
-        Zwraca True, jeśli plik został zapisany, False w przeciwnym razie."""
+# --- INTEGRACJA Z FOIL CUT REPORTER (JSON PAYLOAD) ---
+    def export_foil_report_to_json(self, machine_name: str, report_data: dict, skip_prompt: bool = False) -> bool:
+        """Eksportuje gotowy, zagregowany raport folii do pliku JSON."""
         out_dir = Path(FOIL_REPORTS_PATH)
         out_dir.mkdir(parents=True, exist_ok=True)
         
@@ -996,8 +996,8 @@ class MainController:
         today_str = date.today().strftime("%Y-%m-%d")
         file_path = out_dir / f"{safe_machine_name}_{today_str}.json"
         
-        # Sprawdzamy, czy plik już istnieje i pytamy o nadpisanie
-        if file_path.exists():
+        # Sprawdzamy, czy plik już istnieje (jeśli nie pominęliśmy pytania)
+        if not skip_prompt and file_path.exists():
             should_overwrite = self.view.show_yes_no(
                 "Raport już istnieje",
                 f"Raport dla maszyny {machine_name} na dzień {today_str} już istnieje.\n\nCzy chcesz go zastąpić?"
@@ -1020,66 +1020,104 @@ class MainController:
         except Exception as e:
             print(f"Nie udało się dodać maszyny do bazy: {e}")
         
-        try:
-            os.startfile(out_dir)
-        except Exception:
-            pass
-        
         return True
 
     def handle_export_foil_report(self):
-        """Pobiera wczytany już plan, agreguje zapotrzebowanie BOM i zrzuca do JSON dla foil_cut_reporter."""
-        # Pobieramy ZAPAMIĘTANY obcięty plan ze stanu
-        df_plan = getattr(self.state, "last_cut_plan_df", None)
-        
-        # Fallback, jeśli obcięty nie istnieje, a wczytano pełny plik
-        if df_plan is None:
-            df_plan = self.state.smart_plan_df
-
-        if df_plan is None or df_plan.empty:
-            self.view.show_error("Brak danych", "Nie znaleziono wczytanego planu produkcji. Wygeneruj najpierw raport.")
-            return
-
-        # Ustalenie nazwy maszyny (preferowana z wygenerowanego raportu, fallback z planu)
-        machine_name = "Nieznana_Maszyna"
-        if self.state.last_report_data and "machine" in self.state.last_report_data:
-            machine_name = self.state.last_report_data["machine"]
-        elif "workplace" in df_plan.columns and not df_plan["workplace"].dropna().empty:
-            machine_name = str(df_plan["workplace"].iloc[0]).strip()
-
-        profile_col = "profile_full" if "profile_full" in df_plan.columns else "profile"
-        if profile_col not in df_plan.columns:
-            self.view.show_error("Błąd danych", f"Brak kolumny '{profile_col}' w planie.")
-            return
-            
-        matnr_list = df_plan[profile_col].dropna().unique().tolist()
-
-        # Pobranie BOM z Kronosa
+        """Pobiera wczytany już plan, agreguje zapotrzebowanie BOM i zrzuca do JSON (W tle)."""
+        # ==========================================
+        # 1. ZBIERANIE DANYCH (Główny wątek GUI)
+        # ==========================================
         try:
-            bom_df = fetch_bom_for_articles(matnr_list)
-        except ImportError:
-            self.view.show_error("Błąd Integracji", "Brak funkcji 'fetch_bom_for_articles' w 'db_loader.py'.")
-            return
-        except Exception as e:
-            self.view.show_error("Błąd bazy Kronos", str(e))
-            return
+            df_plan = getattr(self.state, "last_cut_plan_df", None)
+            if df_plan is None:
+                df_plan = self.state.smart_plan_df
 
-        if bom_df.empty:
-            self.view.show_error("Brak struktury", "Nie znaleziono struktury BOM dla wczytanych artykułów.")
-            return
+            if df_plan is None or df_plan.empty:
+                self.view.show_error("Brak danych", "Nie znaleziono wczytanego planu produkcji. Wygeneruj najpierw raport.")
+                return
 
-        # 4. Agregacja logiki biznesowej folii
-        try:
-            report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col)
-            was_exported = self.export_foil_report_to_json(machine_name, report_data)
+            machine_name = "Nieznana_Maszyna"
+            if self.state.last_report_data and "machine" in self.state.last_report_data:
+                machine_name = self.state.last_report_data["machine"]
+            elif "workplace" in df_plan.columns and not df_plan["workplace"].dropna().empty:
+                machine_name = str(df_plan["workplace"].iloc[0]).strip()
+
+            profile_col = "profile_full" if "profile_full" in df_plan.columns else "profile"
+            if profile_col not in df_plan.columns:
+                raise ValueError(f"Brak kolumny '{profile_col}' w planie.")
+                
+            matnr_list = df_plan[profile_col].dropna().unique().tolist()
+
+            # Zanim uruchomimy wątek tła, sprawdzamy czy plik istnieje, by zadać pytanie na głównym wątku!
+            out_dir = Path(FOIL_REPORTS_PATH)
+            safe_machine_name = str(machine_name).replace("/", "-").replace("\\", "-")
+            today_str = date.today().strftime("%Y-%m-%d")
+            file_path = out_dir / f"{safe_machine_name}_{today_str}.json"
             
-            if was_exported:
-                self.view.show_warning("Sukces", f"Pomyślnie wygenerowano i wyeksportowano raport dla: {machine_name}")
-            else:
-                self.view.show_warning("Anulowano", f"Generowanie raportu dla maszyny {machine_name} zostało anulowane.")
+            if file_path.exists():
+                should_overwrite = self.view.show_yes_no(
+                    "Raport już istnieje",
+                    f"Raport dla maszyny {machine_name} na dzień {today_str} już istnieje.\n\nCzy chcesz go zastąpić?"
+                )
+                if not should_overwrite:
+                    return # Użytkownik kliknął NIE, przerywamy
+
+            # Ok, możemy działać. Pokazujemy pasek!
+            self.view.show_progress_popup("Generowanie raportu folii...")
+            self.view.update_progress_popup(0, "Przygotowywanie danych...")
+
         except Exception as e:
-            self.view.show_error("Błąd agregacji folii", str(e))
-            traceback.print_exc()
+            self.view.show_error("Błąd", str(e))
+            return
+
+        # ==========================================
+        # 2. PRACA W TLE (Wątek poboczny)
+        # ==========================================
+        def background_task():
+            try:
+                # Uwaga: używamy .after() by bezpiecznie aktualizować pasek
+                self.view.root.after(0, lambda: self.view.update_progress_popup(10, "Pobieranie struktury BOM z bazy danych..."))
+                
+                try:
+                    bom_df = fetch_bom_for_articles(matnr_list)
+                except ImportError:
+                    raise ImportError("Brak funkcji 'fetch_bom_for_articles' w 'db_loader.py'.")
+                except Exception as e:
+                    raise ConnectionError(f"Błąd bazy Kronos: {e}")
+
+                if bom_df.empty:
+                    raise ValueError("Nie znaleziono struktury BOM dla wczytanych artykułów.")
+
+                self.view.root.after(0, lambda: self.view.update_progress_popup(30, "Agregowanie zapotrzebowania na folię..."))
+
+                # Tworzymy callback, który wysyła update'y do głównego wątku
+                def progress_callback(current, total):
+                    percentage = 30 + int((current / total) * 60)
+                    self.view.root.after(0, lambda: self.view.update_progress_popup(percentage, f"Przetwarzanie planu: {current}/{total}"))
+
+                report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col, progress_callback)
+                
+                # Zapisujemy plik (pomijamy pytanie o nadpisanie, bo pytaliśmy na samym początku)
+                was_exported = self.export_foil_report_to_json(machine_name, report_data, skip_prompt=True)
+                
+                if was_exported:
+                    success_msg = f"Pomyślnie wygenerowano i wyeksportowano raport dla: {machine_name}"
+                    # Wywołujemy nową metodę w głównym wątku GUI
+                    self.view.root.after(0, lambda: self.view.show_completion_in_popup(success_msg))
+                else:
+                    # Jeśli z jakiegoś powodu nie wyeksportowano, po prostu zamykamy popup
+                    self.view.root.after(0, self.view.hide_progress_popup)
+
+            except Exception as e:
+                traceback.print_exc()
+                # W przypadku błędu zamykamy popup i pokazujemy standardowy błąd
+                self.view.root.after(0, self.view.hide_progress_popup)
+                self.view.root.after(0, lambda err=str(e): self.view.show_error("Błąd generowania raportu", err))
+
+        # ==========================================
+        # 3. START
+        # ==========================================
+        threading.Thread(target=background_task, daemon=True).start()
 
     def _extract_width_and_type(self, idnrk: str):
         """Dynamicznie wyciąga typ i szerokość z indeksu folii."""
@@ -1092,11 +1130,12 @@ class MainController:
             width = 0
         return foil_prefix, width
 
-    def _aggregate_foil_requirements(self, df_plan: pd.DataFrame, bom_df: pd.DataFrame, profile_col: str) -> dict:
+    def _aggregate_foil_requirements(self, df_plan: pd.DataFrame, bom_df: pd.DataFrame, profile_col: str, progress_callback=None) -> dict:
         """Łączy produkcję bieżącą z BOM w jeden ustandaryzowany słownik folii."""
         report_data = {'outer_side': [], 'inner_side': [], 'protective': {}}
 
-        for _, row in df_plan.iterrows():
+        total_rows = len(df_plan)
+        for i, (_, row) in enumerate(df_plan.iterrows()):
             matnr = str(row[profile_col]).strip()
             
             # Obliczanie pozostałych metrów (Docelowa - Wykonana)
@@ -1105,6 +1144,8 @@ class MainController:
             meters = max(0.0, target_m - good_m)
             
             if meters <= 0:
+                if progress_callback and (i % 5 == 0 or i == total_rows - 1):
+                    progress_callback(i + 1, total_rows)
                 continue
                 
             requirements = bom_df[bom_df['MATNR'] == matnr]
@@ -1119,6 +1160,9 @@ class MainController:
                     self._add_to_foil_sequential_list(report_data['outer_side'], idnrk, width, meters, matnr)
                 elif posnr == '0020':
                     self._add_to_foil_sequential_list(report_data['inner_side'], idnrk, width, meters, matnr)
+            
+            if progress_callback and (i % 5 == 0 or i == total_rows - 1):
+                progress_callback(i + 1, total_rows)
                         
         return report_data
 

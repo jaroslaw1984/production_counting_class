@@ -10,6 +10,13 @@ class MainWindow:
     def __init__(self, state: AppState):
         self.state = state
         
+        # --- Widżety do pokazywania postępu operacji (np. podczas generowania raportu) ---
+        # Inicjalizacja atrybutów paska postępu
+        self.progress_popup: ctk.CTkToplevel | None = None
+        self.progress_label: ctk.CTkLabel | None = None
+        self.progress_bar: ctk.CTkProgressBar | None = None
+        self.progress_ok_button: ctk.CTkButton | None = None # Nowy atrybut dla przycisku
+        
         # --- Konfiguracja wyglądu ---
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("dark-blue")
@@ -116,7 +123,7 @@ class MainWindow:
         )
 
         self.print_btn = ctk.CTkButton(
-            self.action_frame, text="Drukuj raport", command=self.hanlde_print_report, width=140, height=35
+            self.action_frame, text="Drukuj raport", command=self.handle_print_report, width=140, height=35
         )
         
         self.export_foil_btn = ctk.CTkButton(
@@ -242,7 +249,7 @@ class MainWindow:
         if hasattr(self, 'controller'):
             self.controller.handle_export_foil_report()
 
-    def hanlde_print_report(self):
+    def handle_print_report(self):
         if hasattr(self, 'controller'):
             self.controller.handle_print_report()            
         
@@ -653,3 +660,77 @@ class MainWindow:
         popup = CalcModePopup(self.root, workplace, default_speed, default_pieces_per_shift, on_confirm=on_confirm)
         self.root.wait_window(popup)
         return result["value"]
+    
+    def show_completion_in_popup(self, message: str):
+            """Zmienia widok okna postępu na widok ukończenia z przyciskiem OK."""
+            # Zabezpieczenie, jeśli popup zostałby zamknięty przez X przed końcem procesu
+            if not hasattr(self, 'progress_popup') or self.progress_popup is None or not self.progress_popup.winfo_exists():
+                return
+
+            # 1. Ukrywamy pasek postępu, bo nie jest już potrzebny
+            if self.progress_bar:
+                self.progress_bar.pack_forget()
+
+            # 2. Aktualizujemy wiadomość na etykiecie
+            if self.progress_label:
+                self.progress_label.configure(text=message)
+
+            # 3. Dodajemy przycisk OK (jeśli jeszcze go nie ma)
+            if self.progress_ok_button is None or not self.progress_ok_button.winfo_exists():
+                self.progress_ok_button = ctk.CTkButton(
+                    self.progress_popup,
+                    text="OK",
+                    width=100,
+                    command=self.hide_progress_popup # Po kliknięciu zamykamy cały popup
+                )
+                self.progress_ok_button.pack(pady=20)
+
+    def hide_progress_popup(self):
+        """Zamyka okno postępu i czyści atrybuty."""
+        if not hasattr(self, 'progress_popup') or self.progress_popup is None:
+            return 
+        
+        if self.progress_popup.winfo_exists():
+            self.progress_popup.grab_release()
+            self.progress_popup.destroy()
+            
+        # TUTAJ JEST WŁAŚCIWE MIEJSCE NA RESET:
+        # Resetujemy wszystkie zmienne do stanu początkowego, by kolejne okno wygenerowało się poprawne
+        self.progress_popup = None
+        self.progress_label = None
+        self.progress_bar = None
+        self.progress_ok_button = None
+
+    def show_progress_popup(self, title: str):
+        """Tworzy i wyświetla nowe okno z paskiem postępu."""
+        if self.progress_popup is not None and self.progress_popup.winfo_exists():
+            self.progress_popup.destroy()
+
+        self.progress_popup = ctk.CTkToplevel(self.root)
+        self.progress_popup.title(title)
+        self.progress_popup.geometry("520x120")
+        self.progress_popup.resizable(False, False)
+        self.progress_popup.transient(self.root)
+        self.progress_popup.grab_set()
+
+        self.progress_label = ctk.CTkLabel(self.progress_popup, text="Inicjalizacja...", anchor="w")
+        self.progress_label.pack(pady=10, padx=20, fill="x")
+
+        self.progress_bar = ctk.CTkProgressBar(self.progress_popup, orientation="horizontal", mode="determinate")
+        self.progress_bar.set(0)
+        self.progress_bar.pack(pady=10, padx=20, fill="x")
+        self.root.update_idletasks()
+
+    def update_progress_popup(self, percentage: int, message: str):
+        """Aktualizuje tekst i wartość paska postępu."""
+        if (
+            self.progress_popup is None 
+            or not self.progress_popup.winfo_exists() 
+            or self.progress_label is None 
+            or self.progress_bar is None
+        ):
+            return
+
+        self.progress_label.configure(text=message)
+        self.progress_bar.set(percentage / 100)
+        self.root.update_idletasks()
