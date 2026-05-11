@@ -124,7 +124,7 @@ class MainWindow:
         )
         
         self.export_foil_btn = ctk.CTkButton(
-            self.action_frame, text="Wyślij na folie", command=self.export_foil_report, width=140, height=35
+            self.action_frame, text="Wyślij zapotrzebowanie na folię", command=self.export_foil_report, width=140, height=35
         )
         
         self._build_welcome_screen()
