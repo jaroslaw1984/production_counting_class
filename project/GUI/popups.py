@@ -1126,3 +1126,48 @@ class CalcModePopup(ctk.CTkToplevel):
         
         self.on_confirm(result)
         self.destroy()
+        
+class ProgressPopup(ctk.CTkToplevel):
+    def __init__(self, parent, title="Postęp"):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("520x120")
+        self.resizable(False, False)
+        
+        self.transient(parent)
+        self.grab_set()
+        center_popup(parent, self)
+
+        # Etykieta wiadomości
+        self.progress_label = ctk.CTkLabel(self, text="Inicjalizacja...", anchor="w")
+        self.progress_label.pack(pady=10, padx=20, fill="x")
+
+        # Pasek postępu
+        self.progress_bar = ctk.CTkProgressBar(self, orientation="horizontal", mode="determinate")
+        self.progress_bar.set(0)
+        self.progress_bar.pack(pady=10, padx=20, fill="x")
+        
+        self.ok_button = None
+        self.update_idletasks()
+
+    # -- Metoda do aktualizacji postępu (procent i wiadomość) --
+    def update_progress(self, percentage: int, message: str):
+        """Odświeża tekst i pasek w okienku."""
+        self.progress_label.configure(text=message)
+        self.progress_bar.set(percentage / 100)
+        self.update_idletasks()
+    
+    # -- Metoda do pokazania komunikatu po zakończeniu i przycisku OK --
+    def show_completion(self, message: str, on_ok_callback: Callable):
+        """Chowa pasek, aktualizuje tekst i pokazuje przycisk OK."""
+        self.progress_bar.pack_forget()
+        self.progress_label.configure(text=message, anchor="center", justify="center")
+        
+        if self.ok_button is None or not self.ok_button.winfo_exists():
+            self.ok_button = ctk.CTkButton(
+                self,
+                text="OK",
+                width=100,
+                command=on_ok_callback
+            )
+            self.ok_button.pack(pady=20)
