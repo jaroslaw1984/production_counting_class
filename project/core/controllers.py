@@ -986,35 +986,46 @@ class MainController:
         }
 
     # --- INTEGRACJA Z FOIL CUT REPORTER (JSON PAYLOAD) ---
-    def export_foil_report_to_json(self, machine_name: str, report_data: dict) -> None:
-        """Eksportuje gotowy, zagregowany raport folii do pliku JSON dla programu foil_cut_reporter."""
-        # Docelowo zmień tę ścieżkę na wspólny dysk sieciowy, np. Path(r"\\serwer\raporty_folie")
+    def export_foil_report_to_json(self, machine_name: str, report_data: dict) -> bool:
+        """Eksportuje gotowy, zagregowany raport folii do pliku JSON.
+        Zwraca True, jeśli plik został zapisany, False w przeciwnym razie."""
         out_dir = Path(FOIL_REPORTS_PATH)
         out_dir.mkdir(parents=True, exist_ok=True)
         
         safe_machine_name = str(machine_name).replace("/", "-").replace("\\", "-")
-        file_path = out_dir / f"{safe_machine_name}.json"
+        today_str = date.today().strftime("%Y-%m-%d")
+        file_path = out_dir / f"{safe_machine_name}_{today_str}.json"
+        
+        # Sprawdzamy, czy plik już istnieje i pytamy o nadpisanie
+        if file_path.exists():
+            should_overwrite = self.view.show_yes_no(
+                "Raport już istnieje",
+                f"Raport dla maszyny {machine_name} na dzień {today_str} już istnieje.\n\nCzy chcesz go zastąpić?"
+            )
+            if not should_overwrite:
+                print(f"Anulowano eksport raportu dla {machine_name}.")
+                return False
         
         payload = {
             "machine": machine_name,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "data": report_data  # To będzie słownik: { 'outer_side': [...], 'inner_side': [...], 'protective': {...} }
+            "data": report_data
         }
         
         file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=4), encoding="utf-8")
         print(f"Wyeksportowano gotowy raport folii do {file_path}")
         
-        # Powiadomienie bazy danych (Dla aplikacji foil_cut_reporter)
         try:
             set_foil_report_queued(machine_name)
         except Exception as e:
             print(f"Nie udało się dodać maszyny do bazy: {e}")
         
-        # Automatyczne otwarcie folderu docelowego w systemie Windows po eksporcie
         try:
             os.startfile(out_dir)
         except Exception:
             pass
+        
+        return True
 
     def handle_export_foil_report(self):
         """Pobiera wczytany już plan, agreguje zapotrzebowanie BOM i zrzuca do JSON dla foil_cut_reporter."""
@@ -1060,9 +1071,12 @@ class MainController:
         # 4. Agregacja logiki biznesowej folii
         try:
             report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col)
-            self.export_foil_report_to_json(machine_name, report_data)
+            was_exported = self.export_foil_report_to_json(machine_name, report_data)
             
-            self.view.show_warning("Sukces", f"Pomyślnie wygenerowano i wyeksportowano zapotrzebowanie folii (JSON) dla maszyny:\n{machine_name}")
+            if was_exported:
+                self.view.show_warning("Sukces", f"Pomyślnie wygenerowano i wyeksportowano raport dla: {machine_name}")
+            else:
+                self.view.show_warning("Anulowano", f"Generowanie raportu dla maszyny {machine_name} zostało anulowane.")
         except Exception as e:
             self.view.show_error("Błąd agregacji folii", str(e))
             traceback.print_exc()
