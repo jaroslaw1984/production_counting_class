@@ -8,7 +8,7 @@ from project.core.logic.docx_export import export_report_docx
 from project.core.logic.smart_matcher import SmartPlanMatcher
 from project.config.paths import CONFING_PATH
 from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
-from project.config.db_loader import fetch_bom_for_articles, set_foil_report_queued
+from project.core.logic.foil_exporter import FoilExporter
 from pathlib import Path
 from datetime import datetime, date
 import pandas as pd
@@ -17,7 +17,6 @@ import os
 import tempfile
 import re
 import json
-import threading
 
 class MainController:
     def __init__(self, state, view):
@@ -182,6 +181,11 @@ class MainController:
                 traceback.print_exc()
         else:
             self.view.show_warning("Brak raportu", "Najpierw wygeneruj raport SAP.")
+    
+    # --- Obsługa eksportu raportu folii do pliku JSON ---
+    def handle_export_foil_report(self):
+        exporter = FoilExporter(self.state, self.view)
+        exporter.process_export()
     
     # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):
@@ -524,7 +528,8 @@ class MainController:
         except Exception as e:
             self.view.show_error("Błąd obliczeń", f"Wystąpił problem podczas generowania raportu:\n{e}")
             traceback.print_exc()
-            
+    
+    # --- główna funkcja obsługująca generowanie raportu potwierdzenia zlecenia po wybraniu pliku i zlecenia przez użytkownika ---          
     def handle_confirm_order(self):
         try:
             # 1. Wybór pliku
@@ -756,6 +761,7 @@ class MainController:
         title = "---- Przewidywane zakończenie produkcji --- \n\n"
         return title + "\n".join(out).rstrip() + "\n"  
 
+    # --- funkcje pomocnicze do obsługi raportu SAP (druk, otwieranie pliku, pobieranie info o zmianie z snapshotu) ---
     def _open_docx(self, path: Path) -> None:
         try:
             os.startfile(str(path))
@@ -842,6 +848,7 @@ class MainController:
         # --- zapis do pliku (zastępuje stary plik z tego samego dnia bez pytania) --- 
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # --- ta metoda jest wywoływana przy starcie programu, żeby sprawdzić czy jest już snapshot z dzisiaj i ewentualnie go załadować do stanu. ---
     def _load_snapshot_if_today(self) -> dict | None:
         # --- ładuje snapshot tylko jeśli pochodzi z dzisiejszego dnia. W przeciwnym razie zwraca None. ---
         path = self._snapshot_path()
@@ -859,6 +866,7 @@ class MainController:
 
         return data
     
+    # --- funkcje pomocnicze do obsługi raportu potwierdzenia zlecenia (kalkulacja, obcinanie danych do zlecenia, budowanie bloków) ---
     def _cut_until_order(self, df: pd.DataFrame, order_id: str) -> pd.DataFrame:
         """Obcina DataFrame od początku do podanego zlecenia (włącznie)."""
         if "order_id" not in df.columns:
@@ -876,6 +884,7 @@ class MainController:
         last_idx = hits[-1]
         return df.loc[:last_idx].reset_index(drop=True)
 
+    # --- główny silnik kalkulacji dla Potwierdzenia Zlecenia. Przyjmuje dane z Smart Planu, konfigurację maszyn, wybrane zlecenie i tryb obliczeń, i zwraca słownik z wynikami do wyświetlenia na karcie. ---
     def _calculate_confirmation_result(self, dfx: pd.DataFrame, df_cfg: pd.DataFrame, workplace: str, order_id: str, choice: dict) -> dict:
         """Silnik liczący czas dla Potwierdzenia Zlecenia."""
         df_cfg["profile"] = df_cfg["profile"].astype("string").str.strip()
@@ -985,195 +994,3 @@ class MainController:
             ],
             "end": f"{pl_weekday_name(end_d)} (zmiana {end_s}) ({end_d.strftime('%d.%m.%Y')})"
         }
-
-# --- INTEGRACJA Z FOIL CUT REPORTER (JSON PAYLOAD) ---
-    def export_foil_report_to_json(self, machine_name: str, report_data: dict, skip_prompt: bool = False) -> bool:
-        """Eksportuje gotowy, zagregowany raport folii do pliku JSON."""
-        out_dir = Path(FOIL_REPORTS_PATH)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        
-        safe_machine_name = str(machine_name).replace("/", "-").replace("\\", "-")
-        today_str = date.today().strftime("%Y-%m-%d")
-        file_path = out_dir / f"{safe_machine_name}_{today_str}.json"
-        
-        # Sprawdzamy, czy plik już istnieje (jeśli nie pominęliśmy pytania)
-        if not skip_prompt and file_path.exists():
-            should_overwrite = self.view.show_yes_no(
-                "Raport już istnieje",
-                f"Raport dla maszyny {machine_name} na dzień {today_str} już istnieje.\n\nCzy chcesz go zastąpić?"
-            )
-            if not should_overwrite:
-                print(f"Anulowano eksport raportu dla {machine_name}.")
-                return False
-        
-        payload = {
-            "machine": machine_name,
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "data": report_data
-        }
-        
-        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=4), encoding="utf-8")
-        print(f"Wyeksportowano gotowy raport folii do {file_path}")
-        
-        try:
-            set_foil_report_queued(machine_name)
-        except Exception as e:
-            print(f"Nie udało się dodać maszyny do bazy: {e}")
-        
-        return True
-
-    def handle_export_foil_report(self):
-        """Pobiera wczytany już plan, agreguje zapotrzebowanie BOM i zrzuca do JSON (W tle)."""
-        # ==========================================
-        # 1. ZBIERANIE DANYCH (Główny wątek GUI)
-        # ==========================================
-        try:
-            df_plan = getattr(self.state, "last_cut_plan_df", None)
-            if df_plan is None:
-                df_plan = self.state.smart_plan_df
-
-            if df_plan is None or df_plan.empty:
-                self.view.show_error("Brak danych", "Nie znaleziono wczytanego planu produkcji. Wygeneruj najpierw raport.")
-                return
-
-            machine_name = "Nieznana_Maszyna"
-            if self.state.last_report_data and "machine" in self.state.last_report_data:
-                machine_name = self.state.last_report_data["machine"]
-            elif "workplace" in df_plan.columns and not df_plan["workplace"].dropna().empty:
-                machine_name = str(df_plan["workplace"].iloc[0]).strip()
-
-            profile_col = "profile_full" if "profile_full" in df_plan.columns else "profile"
-            if profile_col not in df_plan.columns:
-                raise ValueError(f"Brak kolumny '{profile_col}' w planie.")
-                
-            matnr_list = df_plan[profile_col].dropna().unique().tolist()
-
-            # Zanim uruchomimy wątek tła, sprawdzamy czy plik istnieje, by zadać pytanie na głównym wątku!
-            out_dir = Path(FOIL_REPORTS_PATH)
-            safe_machine_name = str(machine_name).replace("/", "-").replace("\\", "-")
-            today_str = date.today().strftime("%Y-%m-%d")
-            file_path = out_dir / f"{safe_machine_name}_{today_str}.json"
-            
-            if file_path.exists():
-                should_overwrite = self.view.show_yes_no(
-                    "Raport już istnieje",
-                    f"Raport dla maszyny {machine_name} na dzień {today_str} już istnieje.\n\nCzy chcesz go zastąpić?"
-                )
-                if not should_overwrite:
-                    return # Użytkownik kliknął NIE, przerywamy
-
-            # Ok, możemy działać. Pokazujemy pasek!
-            self.view.show_progress_popup("Generowanie raportu folii...")
-            self.view.update_progress_popup(0, "Przygotowywanie danych...")
-
-        except Exception as e:
-            self.view.show_error("Błąd", str(e))
-            return
-
-        # ==========================================
-        # 2. PRACA W TLE (Wątek poboczny)
-        # ==========================================
-        def background_task():
-            try:
-                # Uwaga: używamy .after() by bezpiecznie aktualizować pasek
-                self.view.root.after(0, lambda: self.view.update_progress_popup(10, "Pobieranie struktury BOM z bazy danych..."))
-                
-                try:
-                    bom_df = fetch_bom_for_articles(matnr_list)
-                except ImportError:
-                    raise ImportError("Brak funkcji 'fetch_bom_for_articles' w 'db_loader.py'.")
-                except Exception as e:
-                    raise ConnectionError(f"Błąd bazy Kronos: {e}")
-
-                if bom_df.empty:
-                    raise ValueError("Nie znaleziono struktury BOM dla wczytanych artykułów.")
-
-                self.view.root.after(0, lambda: self.view.update_progress_popup(30, "Agregowanie zapotrzebowania na folię..."))
-
-                # Tworzymy callback, który wysyła update'y do głównego wątku
-                def progress_callback(current, total):
-                    percentage = 30 + int((current / total) * 60)
-                    self.view.root.after(0, lambda: self.view.update_progress_popup(percentage, f"Przetwarzanie planu: {current}/{total}"))
-
-                report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col, progress_callback)
-                
-                # Zapisujemy plik (pomijamy pytanie o nadpisanie, bo pytaliśmy na samym początku)
-                was_exported = self.export_foil_report_to_json(machine_name, report_data, skip_prompt=True)
-                
-                if was_exported:
-                    success_msg = f"Pomyślnie wygenerowano i wyeksportowano raport dla: {machine_name}"
-                    # Wywołujemy nową metodę w głównym wątku GUI
-                    self.view.root.after(0, lambda: self.view.show_completion_in_popup(success_msg))
-                else:
-                    # Jeśli z jakiegoś powodu nie wyeksportowano, po prostu zamykamy popup
-                    self.view.root.after(0, self.view.hide_progress_popup)
-
-            except Exception as e:
-                traceback.print_exc()
-                # W przypadku błędu zamykamy popup i pokazujemy standardowy błąd
-                self.view.root.after(0, self.view.hide_progress_popup)
-                self.view.root.after(0, lambda err=str(e): self.view.show_error("Błąd generowania raportu", err))
-
-        # ==========================================
-        # 3. START
-        # ==========================================
-        threading.Thread(target=background_task, daemon=True).start()
-
-    def _extract_width_and_type(self, idnrk: str):
-        """Dynamicznie wyciąga typ i szerokość z indeksu folii."""
-        idnrk = str(idnrk).strip()
-        parts = idnrk.split('.')
-        foil_prefix = parts[0]
-        try:
-            width = int(parts[-1])
-        except (ValueError, IndexError):
-            width = 0
-        return foil_prefix, width
-
-    def _aggregate_foil_requirements(self, df_plan: pd.DataFrame, bom_df: pd.DataFrame, profile_col: str, progress_callback=None) -> dict:
-        """Łączy produkcję bieżącą z BOM w jeden ustandaryzowany słownik folii."""
-        report_data = {'outer_side': [], 'inner_side': [], 'protective': {}}
-
-        total_rows = len(df_plan)
-        for i, (_, row) in enumerate(df_plan.iterrows()):
-            matnr = str(row[profile_col]).strip()
-            
-            # Obliczanie pozostałych metrów (Docelowa - Wykonana)
-            target_m = float(row.get("target_value_p", 0.0))
-            good_m = float(row.get("good_qty_p", 0.0))
-            meters = max(0.0, target_m - good_m)
-            
-            if meters <= 0:
-                if progress_callback and (i % 5 == 0 or i == total_rows - 1):
-                    progress_callback(i + 1, total_rows)
-                continue
-                
-            requirements = bom_df[bom_df['MATNR'] == matnr]
-            for _, bom_row in requirements.iterrows():
-                posnr = str(bom_row['POSNR']).strip()
-                idnrk = str(bom_row['IDNRK']).strip()
-                _, width = self._extract_width_and_type(idnrk)
-                
-                if posnr in ['0050', '0060']:
-                    report_data['protective'][idnrk] = report_data['protective'].get(idnrk, 0.0) + meters
-                elif posnr == '0030':
-                    self._add_to_foil_sequential_list(report_data['outer_side'], idnrk, width, meters, matnr)
-                elif posnr == '0020':
-                    self._add_to_foil_sequential_list(report_data['inner_side'], idnrk, width, meters, matnr)
-            
-            if progress_callback and (i % 5 == 0 or i == total_rows - 1):
-                progress_callback(i + 1, total_rows)
-                        
-        return report_data
-
-    def _add_to_foil_sequential_list(self, target_list, idnrk, width, meters, geometry):
-        """Grupowanie ciągłych zleceń (sekwencyjnych) na tę samą folię i geometrię."""
-        if target_list and target_list[-1]['idnrk'] == idnrk and target_list[-1]['geometry'] == geometry:
-            target_list[-1]['meters'] += meters
-        else:
-            target_list.append({
-                'idnrk': idnrk,
-                'width': width,
-                'meters': meters,
-                'geometry': geometry
-            })
