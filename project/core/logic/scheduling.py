@@ -59,6 +59,6 @@ def add_shifts(start_date: date, start_shift: int, shifts_count: int, work_satur
     return d, s
 
 def round_shifts_custom(shifts: float) -> int:
-    # --- Funkcja do zaokrąglania zmian (4.6 w dół, 4.7 w górę). ---
+    # --- Funkcja do zaokrąglania zmian (4.3 w dół, 4.4 w górę). ---
     frac = shifts - math.floor(shifts)
     return math.floor(shifts) if frac < 0.3 else math.ceil(shifts)
