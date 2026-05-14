@@ -17,8 +17,8 @@ class FoilExporter:
         self.state = state
         self.view = view
 
+    # --- główna metoda wywoływana z kontrolera, która zarządza całym procesem eksportu ---
     def process_export(self):
-        """Główna metoda sterująca procesem eksportu."""
         try:
             # 1. Pobieramy dane planu i robimy NIEZALEŻNĄ kopię, aby nie psuć widoku w GUI
             df_plan_raw = getattr(self.state, "last_cut_plan_df", None)
@@ -67,6 +67,7 @@ class FoilExporter:
         except Exception as e:
             self.view.show_error("Błąd przygotowania eksportu", str(e))
 
+    # --- poniżej znajdują się metody pomocnicze, które wykonują główną logikę eksportu w osobnym wątku, aby nie blokować GUI ---
     def _background_task(self, df_plan, matnr_list, machine_name, profile_col):
         """Logika wykonywana w osobnym wątku."""
         try:
@@ -83,13 +84,22 @@ class FoilExporter:
                 percentage = 30 + int((current / total) * 60)
                 self.view.root.after(0, lambda: self.view.update_progress_popup(percentage, f"Analiza: {current}/{total}"))
 
-            report_data = self._aggregate_foil_requirements(df_plan, bom_df, profile_col, progress_callback)
+            # Odbieramy dane raportu ORAZ listę brakujących BOM-ów
+            report_data, missing_boms = self._aggregate_foil_requirements(df_plan, bom_df, profile_col, progress_callback)
             
             # Zapis do JSON
             success = self._save_json_payload(machine_name, report_data)
             
             if success:
                 msg = f"Raport dla {machine_name} został wyeksportowany."
+                
+                # --- DOCZEPIANIE OSTRZEŻENIA DO KOMUNIKATU ---
+                if missing_boms:
+                    missing_boms.sort() # Sortujemy alfabetycznie dla ładnego wyglądu
+                    missing_str = "\n- ".join(missing_boms)
+                    msg += f"\n\nUwaga! Poniższe zlecenia pominięto z powodu braku folii (BOM) w bazie:\n- {missing_str}"
+                # ---------------------------------------------
+                
                 self.view.root.after(0, lambda: self.view.show_completion_in_popup(msg))
             else:
                 self.view.root.after(0, self.view.hide_progress_popup)
@@ -99,16 +109,17 @@ class FoilExporter:
             self.view.root.after(0, self.view.hide_progress_popup)
             self.view.root.after(0, lambda err=str(e): self.view.show_error("Błąd generowania raportu", err))
 
-    def _aggregate_foil_requirements(self, df_plan, bom_df, profile_col, progress_callback) -> dict:
-        """Agreguje dane biorąc docelową wartość 1:1 (bez odejmowania wykonania)."""
+    # --- poniżej znajdują się metody, które wykonują konkretne kroki: agregacja danych, łączenie pozycji, ekstrakcja szerokości, zapisywanie do JSON ---
+    def _aggregate_foil_requirements(self, df_plan, bom_df, profile_col, progress_callback) -> tuple[dict, list]:
+        """Agreguje dane biorąc docelową wartość 1:1 i zwraca też listę brakujących BOM-ów."""
         report_data = {'outer_side': [], 'inner_side': [], 'protective': {}}
+        missing_boms = set() # Używamy zbioru (set), żeby artykuły się nie dublowały
         total_rows = len(df_plan)
 
         for i, (_, row) in enumerate(df_plan.iterrows()):
             matnr = str(row[profile_col]).strip()
             
-            # NAPRAWA: Bierzemy sztywną wartość docelową (target_value_p)
-            # Nie odejmujemy już 'good_qty_p', aby nie gubić artykułów w trakcie produkcji
+            # Bierzemy sztywną wartość docelową
             meters = float(row.get("target_value_p", 0.0))
             
             if meters <= 0:
@@ -116,6 +127,12 @@ class FoilExporter:
                 continue
                 
             requirements = bom_df[bom_df['MATNR'] == matnr]
+            
+            # --- WYŁAPYWANIE BRAKÓW W KRONOSIE ---
+            if requirements.empty:
+                missing_boms.add(matnr)
+            # ------------------------------------
+
             for _, bom_row in requirements.iterrows():
                 posnr = str(bom_row['POSNR']).strip()
                 idnrk = str(bom_row['IDNRK']).strip()
@@ -131,8 +148,9 @@ class FoilExporter:
             if progress_callback and (i % 5 == 0 or i == total_rows - 1):
                 progress_callback(i + 1, total_rows)
                         
-        return report_data
+        return report_data, list(missing_boms) # Zwracamy dwie rzeczy!
 
+    # --- metoda pomocnicza do łączenia pozycji, jeśli mają ten sam artykuł i geometrię (np. dwie pozycje z tym samym idnrk i geometry będą zsumowane w metrach) ---
     def _add_to_list(self, target_list, idnrk, width, meters, geometry):
         """Łączy metry jeśli ten sam artykuł i folia występują obok siebie."""
         if target_list and target_list[-1]['idnrk'] == idnrk and target_list[-1]['geometry'] == geometry:
@@ -142,6 +160,7 @@ class FoilExporter:
                 'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': geometry
             })
 
+    # --- metoda pomocnicza do ekstrakcji szerokości i typu folii z nazwy artykułu (idnrk) ---
     def _extract_width_and_type(self, idnrk: str):
         idnrk = str(idnrk).strip()
         parts = idnrk.split('.')
@@ -152,6 +171,7 @@ class FoilExporter:
             width = 0
         return prefix, width
 
+    # --- metoda pomocnicza do zapisywania gotowego słownika do pliku .json ---
     def _save_json_payload(self, machine_name, report_data) -> bool:
         """Zapisuje gotowy słownik do pliku .json."""
         out_dir = Path(FOIL_REPORTS_PATH)

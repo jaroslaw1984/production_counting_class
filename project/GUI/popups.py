@@ -1159,15 +1159,41 @@ class ProgressPopup(ctk.CTkToplevel):
     
     # -- Metoda do pokazania komunikatu po zakończeniu i przycisku OK --
     def show_completion(self, message: str, on_ok_callback: Callable):
-        """Chowa pasek, aktualizuje tekst i pokazuje przycisk OK."""
+        """Wybiera między czystą etykietą a polem tekstowym w zależności od treści."""
         self.progress_bar.pack_forget()
-        self.progress_label.configure(text=message, anchor="center", justify="center")
         
+        # Sprawdzamy, czy wiadomość zawiera znaki nowej linii (np. listę braków)
+        if "\n" in message:
+            # TRYB RAPORTU: Chowamy małą etykietę i wstawiamy pole tekstowe z suwakiem
+            self.progress_label.pack_forget()
+            
+            lines = message.count('\n')
+            # Dynamiczna wysokość okna dla raportu
+            calculated_height = max(200, min(450, 120 + lines * 20))
+            self.geometry(f"520x{calculated_height}")
+            
+            textbox = ctk.CTkTextbox(self, wrap="word", font=("Arial", 12))
+            textbox.pack(padx=20, pady=(10, 10), fill="both", expand=True)
+            textbox.insert("0.0", message)
+            textbox.configure(state="disabled")
+        else:
+            # TRYB SUKCESU: wygląd skrócony, wycentrowany
+            self.geometry("450x160")
+            self.progress_label.configure(
+                text=message, 
+                anchor="center", 
+                justify="center",
+                font=("Arial", 13, "bold")
+            )
+            # Upewniamy się, że etykieta jest dobrze wypozycjonowana
+            self.progress_label.pack(pady=25, padx=20, fill="x")
+
+        # Przycisk OK na samym dole
         if self.ok_button is None or not self.ok_button.winfo_exists():
             self.ok_button = ctk.CTkButton(
                 self,
                 text="OK",
-                width=100,
+                width=120,
                 command=on_ok_callback
             )
-            self.ok_button.pack(pady=20)
+            self.ok_button.pack(pady=(0, 20))
