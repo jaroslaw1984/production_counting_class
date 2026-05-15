@@ -45,7 +45,6 @@ class FoilExporter:
             elif "workplace" in df_plan.columns and not df_plan["workplace"].dropna().empty:
                 machine_name = str(df_plan["workplace"].iloc[0]).strip()
 
-            # Zmieniona nazwa zmiennej na bardziej czytelną
             is_double_sided_machine = self._is_double_sided(machine_name)
 
             profile_col = "profile_full" if "profile_full" in df_plan.columns else "profile"
@@ -71,6 +70,15 @@ class FoilExporter:
             self.view.root.after(0, lambda: self.view.update_progress_popup(10, "Pobieranie BOM..."))
             bom_df = fetch_bom_for_articles(matnr_list)
             
+            # --- ZABÓJCA "DUCHÓW" Z BAZY KRONOS ---
+            if not bom_df.empty:
+                bom_df['MATNR'] = bom_df['MATNR'].astype("string").str.strip()
+                bom_df['POSNR'] = bom_df['POSNR'].astype("string").str.strip()
+                bom_df['IDNRK'] = bom_df['IDNRK'].astype("string").str.strip()
+                # Usuwamy zduplikowane wiersze dla tego samego artykułu i pozycji BOM
+                bom_df = bom_df.drop_duplicates(subset=['MATNR', 'POSNR', 'IDNRK'])
+            # --------------------------------------
+
             self.view.root.after(0, lambda: self.view.update_progress_popup(30, "Agregowanie danych..."))
             
             def progress_cb(current, total):
@@ -97,55 +105,65 @@ class FoilExporter:
     def _aggregate_foil_requirements(self, df_plan, bom_df, profile_col, is_double_sided_machine, progress_callback) -> tuple[dict, list]:
         report_data = {'outer_side': [], 'inner_side': [], 'combined_side': [], 'protective': {}}
         missing_boms = set()
-        total_rows = len(df_plan)
 
+        grouped_plan = []
         for i, (_, row) in enumerate(df_plan.iterrows()):
             matnr = str(row[profile_col]).strip()
             meters = float(row.get("target_value_p", 0.0))
             
             if meters <= 0:
-                if progress_callback: progress_callback(i + 1, total_rows)
                 continue
                 
+            if grouped_plan and grouped_plan[-1]['matnr'] == matnr:
+                grouped_plan[-1]['meters'] += meters
+            else:
+                grouped_plan.append({'matnr': matnr, 'meters': meters, 'order_index': i})
+
+        total_groups = len(grouped_plan)
+
+        for i, item in enumerate(grouped_plan):
+            matnr = item['matnr']
+            meters = item['meters']
+            order_idx = item['order_index']
+            
             requirements = bom_df[bom_df['MATNR'] == matnr]
             if requirements.empty:
                 missing_boms.add(matnr)
 
             if is_double_sided_machine:
-                for side_pos in ['0030', '0020']:
-                    side_req = requirements[requirements['POSNR'].astype(str).str.strip() == side_pos]
+                for side_pos in ['0030', '0020']: 
+                    side_req = requirements[requirements['POSNR'] == side_pos]
                     for _, bom_row in side_req.iterrows():
-                        idnrk = str(bom_row['IDNRK']).strip()
+                        idnrk = str(bom_row['IDNRK'])
                         _, width = self._extract_width_and_type(idnrk)
-                        self._add_to_list(report_data['combined_side'], idnrk, width, meters, matnr, i)
+                        
+                        report_data['combined_side'].append({
+                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                        })
             else:
                 for _, bom_row in requirements.iterrows():
-                    posnr = str(bom_row['POSNR']).strip()
-                    idnrk = str(bom_row['IDNRK']).strip()
+                    posnr = str(bom_row['POSNR'])
+                    idnrk = str(bom_row['IDNRK'])
                     _, width = self._extract_width_and_type(idnrk)
                     
                     if posnr == '0030':
-                        self._add_to_list(report_data['outer_side'], idnrk, width, meters, matnr, i)
+                        report_data['outer_side'].append({
+                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                        })
                     elif posnr == '0020':
-                        self._add_to_list(report_data['inner_side'], idnrk, width, meters, matnr, i)
+                        report_data['inner_side'].append({
+                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                        })
 
             prot_req = requirements[requirements['POSNR'].isin(['0050', '0060'])]
             for _, bom_row in prot_req.iterrows():
-                idnrk = str(bom_row['IDNRK']).strip()
+                idnrk = str(bom_row['IDNRK'])
                 report_data['protective'][idnrk] = report_data['protective'].get(idnrk, 0.0) + meters
 
-            if progress_callback and (i % 5 == 0 or i == total_rows - 1):
-                progress_callback(i + 1, total_rows)
+            if progress_callback and (i % 5 == 0 or i == total_groups - 1):
+                progress_callback(i + 1, total_groups)
                         
         return report_data, list(missing_boms)
-
-    def _add_to_list(self, target_list, idnrk, width, meters, geometry, order_index):
-        if target_list and target_list[-1]['idnrk'] == idnrk and target_list[-1]['geometry'] == geometry:
-            target_list[-1]['meters'] += meters
-        else:
-            target_list.append({
-                'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': geometry, 'order_index': order_index
-            })
 
     def _extract_width_and_type(self, idnrk: str):
         idnrk = str(idnrk).strip()
@@ -172,7 +190,6 @@ class FoilExporter:
         
         file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=4), encoding="utf-8")
         
-        # --- ZDJĘCIE KNEBLA Z BŁĘDÓW BAZY DANYCH ---
         try:
             set_foil_report_queued(machine_name)
             print(f"[SIGNAL KRONOS] SUKCES: Wysłano sygnał gotowości dla: {machine_name}")
