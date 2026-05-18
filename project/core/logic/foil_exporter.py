@@ -112,7 +112,7 @@ class FoilExporter:
             self.view.root.after(0, lambda err=str(e): self.view.show_error("Błąd", err))
 
     def _aggregate_foil_requirements(self, df_plan, bom_df, profile_col, is_double_sided_machine, progress_callback) -> tuple[dict, list]:
-        report_data = {'outer_side': [], 'inner_side': [], 'combined_side': [], 'protective': {}}
+        report_data = {'outer_side': [], 'inner_side': [], 'top_side': [], 'combined_side': [], 'protective': {}}
         missing_boms = set()
 
         grouped_plan = []
@@ -140,7 +140,8 @@ class FoilExporter:
                 missing_boms.add(matnr)
 
             if is_double_sided_machine:
-                for side_pos in ['0030', '0020']: 
+                # --- ZMIANA: Zaktualizowano na 0070 ---
+                for side_pos in ['0030', '0020', '0070']: 
                     side_req = requirements[requirements['POSNR'] == side_pos]
                     for _, bom_row in side_req.iterrows():
                         idnrk = str(bom_row['IDNRK'])
@@ -163,8 +164,14 @@ class FoilExporter:
                         report_data['inner_side'].append({
                             'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
                         })
+                    # --- ZMIANA: Zaktualizowano na 0070 (Strona Górna) ---
+                    elif posnr == '0070':
+                        report_data['top_side'].append({
+                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                        })
 
-            prot_req = requirements[requirements['POSNR'].isin(['0050', '0060'])]
+            # --- ZMIANA: Dodano 0090 do folii ochronnych ---
+            prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
             for _, bom_row in prot_req.iterrows():
                 idnrk = str(bom_row['IDNRK'])
                 report_data['protective'][idnrk] = report_data['protective'].get(idnrk, 0.0) + meters
