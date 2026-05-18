@@ -22,7 +22,16 @@ class FoilExporter:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 machines_list = json.load(f)
-            return any(str(m).strip() in machine_name for m in machines_list)
+            
+            # --- ZABEZPIECZENIE PRZED "Maszyna 1" w "Maszyna 11" ---
+            # Używamy re.search z tzw. "negative lookahead" (?!\d).
+            # Szukamy nazwy, ale sprawdzamy, czy zaraz za nią nie stoi inna cyfra.
+            for m in machines_list:
+                pattern = re.escape(str(m).strip()) + r"(?!\d)"
+                if re.search(pattern, machine_name):
+                    return True
+            return False
+            
         except Exception as e:
             print(f"Błąd odczytu konfiguracji maszyn obustronnych: {e}")
             return False
