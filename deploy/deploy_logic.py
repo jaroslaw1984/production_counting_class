@@ -72,6 +72,7 @@ class ReleaseBuilder:
             # "--icon", "icon.ico",
             "--add-data", "project\\config\\profile_config.csv;project\\config",
             "--add-data", "project\\config\\machine_config.csv;project\\config",
+            "--add-data", "project\\config\\double_sided_machines.json;project\\config",
             "--add-data", "project\\core\\logic\\templates\\report_template.docx;project\\core\\logic\\templates",
             "--add-data", "project\\data\\help_sections.json;project\\data",
             "--add-data", "project\\data\\help_images;project\\data\\help_images",
