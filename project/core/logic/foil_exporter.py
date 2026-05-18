@@ -112,27 +112,43 @@ class FoilExporter:
             self.view.root.after(0, lambda err=str(e): self.view.show_error("Błąd", err))
 
     def _aggregate_foil_requirements(self, df_plan, bom_df, profile_col, is_double_sided_machine, progress_callback) -> tuple[dict, list]:
-        report_data = {'outer_side': [], 'inner_side': [], 'top_side': [], 'combined_side': [], 'protective': {}}
+        report_data = {'production_sequence': [], 'combined_side': [], 'protective': {}}
         missing_boms = set()
 
         grouped_plan = []
         for i, (_, row) in enumerate(df_plan.iterrows()):
             matnr = str(row[profile_col]).strip()
             meters = float(row.get("target_value_p", 0.0))
-            
+            side = str(row.get("side", "")).strip().replace(".0", "").zfill(4)
+
             if meters <= 0:
                 continue
                 
-            if grouped_plan and grouped_plan[-1]['matnr'] == matnr:
+            if grouped_plan and grouped_plan[-1]['matnr'] == matnr and grouped_plan[-1]['side'] == side:
                 grouped_plan[-1]['meters'] += meters
             else:
-                grouped_plan.append({'matnr': matnr, 'meters': meters, 'order_index': i})
+                grouped_plan.append({'matnr': matnr, 'meters': meters, 'side': side, 'order_index': i})
 
         total_groups = len(grouped_plan)
+        
+        # --- POPRAWIONE MAPOWANIE HYDRA -> KRONOS ---
+        op_to_posnr = {
+            '0021': ['0030'],            # Zewnętrzna
+            '0022': ['0020'],            # Wewnętrzna
+            '0023': ['0070'],            # Górna
+            '0020': ['0030', '0020']     # Obustronnie (Kombajn)
+        }
+        
+        posnr_desc = {
+            '0030': 'Zewn.',
+            '0020': 'Wewn.',
+            '0070': 'Górna'
+        }
 
         for i, item in enumerate(grouped_plan):
             matnr = item['matnr']
             meters = item['meters']
+            op_side = item['side']
             order_idx = item['order_index']
             
             requirements = bom_df[bom_df['MATNR'] == matnr]
@@ -140,7 +156,7 @@ class FoilExporter:
                 missing_boms.add(matnr)
 
             if is_double_sided_machine:
-                # --- ZMIANA: Zaktualizowano na 0070 ---
+                # --- TRYB KOMBAJNU (Wszystko razem) ---
                 for side_pos in ['0030', '0020', '0070']: 
                     side_req = requirements[requirements['POSNR'] == side_pos]
                     for _, bom_row in side_req.iterrows():
@@ -151,26 +167,23 @@ class FoilExporter:
                             'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
                         })
             else:
-                for _, bom_row in requirements.iterrows():
-                    posnr = str(bom_row['POSNR'])
-                    idnrk = str(bom_row['IDNRK'])
-                    _, width = self._extract_width_and_type(idnrk)
-                    
-                    if posnr == '0030':
-                        report_data['outer_side'].append({
-                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
-                        })
-                    elif posnr == '0020':
-                        report_data['inner_side'].append({
-                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
-                        })
-                    # --- ZMIANA: Zaktualizowano na 0070 (Strona Górna) ---
-                    elif posnr == '0070':
-                        report_data['top_side'].append({
-                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                # --- TRYB PRZEPLATANY DLA RESZTY MASZYN ---
+                target_posnrs = op_to_posnr.get(op_side, ['0030', '0020', '0070'])
+                for posnr in target_posnrs:
+                    side_req = requirements[requirements['POSNR'] == posnr]
+                    for _, bom_row in side_req.iterrows():
+                        idnrk = str(bom_row['IDNRK'])
+                        _, width = self._extract_width_and_type(idnrk)
+                        
+                        report_data['production_sequence'].append({
+                            'idnrk': idnrk, 
+                            'width': width, 
+                            'meters': meters, 
+                            'geometry': matnr, 
+                            'order_index': order_idx,
+                            'side_desc': posnr_desc.get(posnr, '')
                         })
 
-            # --- ZMIANA: Dodano 0090 do folii ochronnych ---
             prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
             for _, bom_row in prot_req.iterrows():
                 idnrk = str(bom_row['IDNRK'])
