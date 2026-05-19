@@ -1,7 +1,7 @@
 from datetime import datetime
 
 PROGRAM_NAME = "Program do szacowania czasu trwania produkcji oraz raportowania"
-PROGRAM_VERSION = "3.0.6"
+PROGRAM_VERSION = "3.0.7"
 PROGRAM_YEAR = datetime.now().year
 PROGRAM_AUTHOR = "Jarosław Sochacki"
 DESCRIPTION = ("Program do szacowania czasu trwania produkcji\n"
