@@ -210,6 +210,24 @@ class FoilExporter:
         safe_name = str(machine_name).replace("/", "-").replace("\\", "-")
         file_path = out_dir / f"{safe_name}_{date.today().strftime('%Y-%m-%d')}.json"
         
+        # Ustawiamy domyślny format od razu z kropkami
+        snapshot_date_str = date.today().strftime('%d.%m.%Y')
+        try:
+            import os
+            # Poprawiona ścieżka - APPDATA zawiera już w sobie "Roaming"
+            snap_path = Path(os.getenv("APPDATA") or Path.home()) / "ProductionCounter" / "production_snapshot.json"
+            if snap_path.exists():
+                with open(snap_path, "r", encoding="utf-8") as f:
+                    snap_data = json.load(f)
+                    if "snapshot_date" in snap_data:
+                        parsed_date = datetime.strptime(snap_data["snapshot_date"], "%Y-%m-%d")
+                        snapshot_date_str = parsed_date.strftime("%d.%m.%Y")
+        except Exception as e:
+            print(f"Nie udało się odczytać daty snapshota dla raportu folii: {e}")
+        
+        # --- KLUCZOWA ZMIANA: Dodajemy datę do wnętrza raportu, aby Word ją zobaczył ---
+        report_data["snapshot_date"] = snapshot_date_str
+        
         payload = {
             "machine": machine_name,
             "is_double_sided": is_double_sided_machine,
