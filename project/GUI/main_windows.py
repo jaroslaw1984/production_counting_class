@@ -5,7 +5,7 @@ from project.GUI.popups import ReportParamsPopup
 from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
 from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, ReportParamsPopup, OrderIdPopup, CalcModePopup, ProgressPopup
-
+from project.config.version import PROGRAM_NAME
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -20,7 +20,7 @@ class MainWindow:
                 
         # --- Root window ---
         self.root = ctk.CTk()
-        self.root.title("Policz produkcję")
+        self.root.title(PROGRAM_NAME)
         self.root.geometry("840x640")
         
         # --- Ustawienia czcionki ---
