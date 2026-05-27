@@ -10,7 +10,7 @@ from datetime import date, datetime
 from PIL import Image
 from pathlib import Path
 from tkinter import messagebox
-from typing import Callable, Tuple
+from typing import Callable
 from project.config.version import (
     PROGRAM_NAME,
     PROGRAM_VERSION,
