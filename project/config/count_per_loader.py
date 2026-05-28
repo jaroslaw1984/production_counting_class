@@ -109,4 +109,45 @@ def fetch_sap_basic_profiles(linia: str, day) -> pd.DataFrame:
     df_sum = cast(pd.DataFrame, df.groupby(["INDEKS", "JM", "LINIA"], as_index=False)["ILOSC"].sum())
     return df_sum
 
+def add_workplace(workplace: str, speed_m_per_min: float, count_by_shift: float) -> bool:
+    """Dodaje nową maszynę do bazy danych (INSERT)."""
+    sql = f"INSERT INTO {PLAN_TABLE} (workplace, speed_m_per_min, count_by_shift) VALUES (?, ?, ?)"
+    engine = _get_plan_engine()
+    try:
+        with engine.raw_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (str(workplace).strip(), float(speed_m_per_min), float(count_by_shift)))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"Błąd SQL (INSERT): {e}")
+        return False
+
+def update_workplace_full(workplace: str, speed_m_per_min: float, count_by_shift: float) -> bool:
+    """Aktualizuje prędkość i sztuki dla istniejącej maszyny (UPDATE)."""
+    sql = f"UPDATE {PLAN_TABLE} SET speed_m_per_min = ?, count_by_shift = ? WHERE workplace = ?"
+    engine = _get_plan_engine()
+    try:
+        with engine.raw_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (float(speed_m_per_min), float(count_by_shift), str(workplace).strip()))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"Błąd SQL (UPDATE): {e}")
+        return False
+
+def delete_workplace(workplace: str) -> bool:
+    """Usuwa maszynę z bazy danych (DELETE)."""
+    sql = f"DELETE FROM {PLAN_TABLE} WHERE workplace = ?"
+    engine = _get_plan_engine()
+    try:
+        with engine.raw_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (str(workplace).strip(),))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"Błąd SQL (DELETE): {e}")
+        return False
 
