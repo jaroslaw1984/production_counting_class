@@ -6,6 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # --- stała ścieżka do pliku konfiguracyjnego --- 
 CONFING_PATH = BASE_DIR / "config" / "profile_config.csv"
 MACHINE_CONFIG_PATH = BASE_DIR / "config" / "machine_config.csv"
+DOUBLE_SIDED_MACHINES_PATH = BASE_DIR / "config" / "double_sided_machines.json"
 SHIFTS_PER_DAY = 3
 DOUBLE_SIDED_MACHINES_CONFIG = BASE_DIR / "config" / "double_sided_machines.json"
 

@@ -4,6 +4,9 @@ from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERS
 from project.core.app_state import AppState
 from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, ReportParamsPopup, OrderIdPopup, CalcModePopup, ProgressPopup
 from project.config.version import PROGRAM_NAME
+from project.GUI.config_window import ConfigWindow
+from project.core.config_manager import ConfigDataManager
+from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFING_PATH
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -82,6 +85,7 @@ class MainWindow:
              
         # --- definicja dolnych przycisków ---     
         bottom_buttons = [
+            ("Ustawienia", self.open_config_window),
             ("Pomoc", self.help_btn),
             ("O programie", self.about_btn)  
         ]
@@ -274,6 +278,15 @@ class MainWindow:
                 pass
             finally:
                 self.table_frame = None
+    
+    # --- Otwieranie okna konfiguracji ---            
+    def open_config_window(self):
+        data_manager = ConfigDataManager(
+            ds_machines_path=DOUBLE_SIDED_MACHINES_PATH,
+            machines_csv_path=MACHINE_CONFIG_PATH,
+            profiles_csv_path=CONFING_PATH
+        )
+        ConfigWindow(self.root, data_manager)
         
     def help_btn(self):
         HelpWindow(self.root)
