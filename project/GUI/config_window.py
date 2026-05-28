@@ -26,7 +26,7 @@ class ConfigWindow(ctk.CTkToplevel):
         
         # Inicjalizacja zakładek
         self.tab_ds = self.tabview.add("Maszyny obustronne")
-        self.tab_machines = self.tabview.add("Maszyny")
+        self.tab_machines = self.tabview.add("Park maszynyowy")
         self.tab_profiles = self.tabview.add("Geometrie")
         
         # Budowa zawartości zakładek
