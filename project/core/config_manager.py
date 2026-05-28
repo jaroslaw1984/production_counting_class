@@ -55,13 +55,15 @@ class ConfigDataManager:
     def _read_csv(self, file_path: Path) -> List[Dict[str, str]]:
         if not file_path.exists():
             return []
-        with open(file_path, 'r', encoding='utf-8', newline='') as f:
+        # Zmiana kodowania na 'utf-8-sig' usuwa problem z niewidocznym znakiem BOM z Excela
+        with open(file_path, 'r', encoding='utf-8-sig', newline='') as f:
             reader = csv.DictReader(f, delimiter=self.delimiter)
             return list(reader)
 
     def _write_csv(self, file_path: Path, fieldnames: List[str], data: List[Dict[str, str]]) -> bool:
         try:
-            with open(file_path, 'w', encoding='utf-8', newline='') as f:
+            # Tutaj również używamy 'utf-8-sig', aby zachować pełną kompatybilność z Excelem
+            with open(file_path, 'w', encoding='utf-8-sig', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=self.delimiter)
                 writer.writeheader()
                 writer.writerows(data)

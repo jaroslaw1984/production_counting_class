@@ -18,8 +18,11 @@ class ConfigWindow(ctk.CTkToplevel):
         self.grab_set()
         
         # --- Główny kontener na zakładki ---
-        self.tabview = ctk.CTkTabview(self)
+        self.tabview = ctk.CTkTabview(self, command=self._on_tab_changed)
         self.tabview.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        # --- Flaga sprawdzająca, czy lista profili została już narysowana ---
+        self.profiles_rendered = False
         
         # Inicjalizacja zakładek
         self.tab_ds = self.tabview.add("Maszyny obustronne")
@@ -29,7 +32,16 @@ class ConfigWindow(ctk.CTkToplevel):
         # Budowa zawartości zakładek
         self._build_ds_machines_tab()
         self._build_machines_tab() 
-        # self._build_profiles_tab()  # <- Tym zajmiemy się w kolejnym kroku
+        self._build_profiles_tab()
+        
+    def _on_tab_changed(self):
+        """Uruchamia się przy każdym przełączeniu zakładki. Ładuje ciężkie GUI tylko w razie potrzeby."""
+        selected_tab = self.tabview.get()
+        
+        if selected_tab == "Geometrie" and not self.profiles_rendered:
+            # Rysujemy listę dopiero gdy ktoś wejdzie w zakładkę
+            self._refresh_profiles_list(self.all_profiles)
+            self.profiles_rendered = True
 
     # ==========================================
     # ZAKŁADKA 1: MASZYNY OBUSTRONNE (JSON)
@@ -218,3 +230,139 @@ class ConfigWindow(ctk.CTkToplevel):
                 self._refresh_machines_list()
             else:
                 messagebox.showerror("Błąd", "Nie udało się usunąć maszyny z bazy danych.")
+                
+    # ==========================================
+    # ZAKŁADKA 3: GEOMETRIE / PROFILE (CSV)
+    # ==========================================
+    def _build_profiles_tab(self):
+        # 1. Wyszukiwarka (góra)
+        self.prof_search_frame = ctk.CTkFrame(self.tab_profiles, fg_color="transparent")
+        self.prof_search_frame.pack(fill="x", padx=10, pady=(5, 5))
+        
+        self.prof_search_entry = ctk.CTkEntry(self.prof_search_frame, placeholder_text="Szukaj profilu...")
+        self.prof_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        # --- ZMIANY: Przyciski Szukaj i Reset ---
+        self.prof_search_btn = ctk.CTkButton(self.prof_search_frame, text="Szukaj", command=self._filter_profiles, width=80)
+        self.prof_search_btn.pack(side="left", padx=(0, 5))
+        
+        self.prof_reset_btn = ctk.CTkButton(
+            self.prof_search_frame, text="Reset", width=80, 
+            fg_color="#555555", hover_color="#333333",
+            command=self._reset_profiles_filter
+        )
+        self.prof_reset_btn.pack(side="left", padx=(0, 0))
+
+        # Podpięcie klawisza Enter pod wyszukiwanie
+        self.prof_search_entry.bind("<Return>", self._filter_profiles)
+        
+        # 2. Obszar przewijanej listy (środek)
+        self.prof_scroll_frame = ctk.CTkScrollableFrame(self.tab_profiles)
+        self.prof_scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # 3. Formularz (dół)
+        self.prof_form_frame = ctk.CTkFrame(self.tab_profiles)
+        self.prof_form_frame.pack(fill="x", padx=10, pady=(5, 10))
+        
+        self.prof_name_entry = ctk.CTkEntry(self.prof_form_frame, placeholder_text="Profil (np. GP8280)", width=160)
+        self.prof_name_entry.pack(side="left", padx=(10, 5), pady=10)
+        
+        self.prof_side_entry = ctk.CTkEntry(self.prof_form_frame, placeholder_text="Strona (np. 0022)", width=120)
+        self.prof_side_entry.pack(side="left", padx=5, pady=10)
+        
+        self.prof_time_entry = ctk.CTkEntry(self.prof_form_frame, placeholder_text="Czas (min)", width=100)
+        self.prof_time_entry.pack(side="left", padx=5, pady=10)
+        
+        self.prof_save_btn = ctk.CTkButton(self.prof_form_frame, text="Zapisz", command=self._save_profile, width=100)
+        self.prof_save_btn.pack(side="right", padx=(5, 10), pady=10)
+
+        # Pobieramy dane z DataManager i inicjalizujemy pełną listę
+        self.all_profiles = self.data_manager.get_profiles()
+        # self._refresh_profiles_list(self.all_profiles)
+
+    def _filter_profiles(self, event=None):
+        """Filtruje listę na podstawie wpisanego tekstu w wyszukiwarce."""
+        search_term = self.prof_search_entry.get().strip().upper()
+        if not search_term:
+            filtered = self.all_profiles
+        else:
+            filtered = [p for p in self.all_profiles if search_term in p['profile'].upper()]
+        
+        self._refresh_profiles_list(filtered)
+        
+    def _reset_profiles_filter(self):
+        """Czyści pole wyszukiwania i odświeża listę do pełnego stanu."""
+        self.prof_search_entry.delete(0, 'end')
+        self._filter_profiles()
+
+    def _refresh_profiles_list(self, profiles_to_show: list):
+        """Czyści i buduje listę profili."""
+        for widget in self.prof_scroll_frame.winfo_children():
+            widget.destroy()
+
+        for p in profiles_to_show:
+            row_frame = ctk.CTkFrame(self.prof_scroll_frame, fg_color="transparent")
+            row_frame.pack(fill="x", pady=2)
+            
+            info_text = f"Profil: {p['profile']}  |  Strona: {p['side']}  |  Czas: {p['setting_time']} min"
+            lbl = ctk.CTkLabel(row_frame, text=info_text, anchor="w")
+            lbl.pack(side="left", padx=10)
+            
+            # Przekazujemy oba klucze: profil i stronę
+            del_btn = ctk.CTkButton(
+                row_frame, text="Usuń", width=60, 
+                fg_color="#D32F2F", hover_color="#B71C1C",
+                command=lambda prof=p['profile'], side=p['side']: self._delete_profile(prof, side)
+            )
+            del_btn.pack(side="right", padx=(5, 10))
+            
+            edit_btn = ctk.CTkButton(
+                row_frame, text="Edytuj", width=60, 
+                fg_color="#1976D2", hover_color="#1565C0",
+                command=lambda data=p: self._edit_profile(data)
+            )
+            edit_btn.pack(side="right", padx=5)
+
+    def _edit_profile(self, p_data: dict):
+        """Wrzuca dane z wybranego wiersza do formularza na dole."""
+        self.prof_name_entry.delete(0, 'end')
+        self.prof_name_entry.insert(0, p_data['profile'])
+        
+        self.prof_side_entry.delete(0, 'end')
+        self.prof_side_entry.insert(0, p_data['side'])
+        
+        self.prof_time_entry.delete(0, 'end')
+        self.prof_time_entry.insert(0, p_data['setting_time'])
+
+    def _save_profile(self):
+        """Dodaje nowy lub aktualizuje czas zbrojenia istniejącego profilu."""
+        prof = self.prof_name_entry.get().strip().upper()  # Wymuszamy wielkie litery dla porządku
+        side = self.prof_side_entry.get().strip()
+        time_val = self.prof_time_entry.get().strip()
+        
+        if not prof or not side or not time_val:
+            messagebox.showwarning("Błąd", "Wszystkie pola muszą być wypełnione!")
+            return
+            
+        success = self.data_manager.save_profile(prof, side, time_val)
+        if success:
+            self.prof_name_entry.delete(0, 'end')
+            self.prof_side_entry.delete(0, 'end')
+            self.prof_time_entry.delete(0, 'end')
+            
+            # Odświeżenie danych z pliku i zresetowanie wyszukiwarki
+            self.all_profiles = self.data_manager.get_profiles()
+            self.prof_search_entry.delete(0, 'end')
+            self._refresh_profiles_list(self.all_profiles)
+        else:
+            messagebox.showerror("Błąd", "Nie udało się zapisać profilu. Zamknij plik w Excelu i spróbuj ponownie.")
+
+    def _delete_profile(self, profile: str, side: str):
+        if messagebox.askyesno("Potwierdzenie", f"Czy na pewno usunąć profil {profile} (strona {side})?"):
+            success = self.data_manager.delete_profile(profile, side)
+            if success:
+                self.all_profiles = self.data_manager.get_profiles()
+                # Ponowne wywołanie filtru pozwala zachować wyniki wyszukiwania po usunięciu
+                self._filter_profiles()
+            else:
+                messagebox.showerror("Błąd", "Nie udało się usunąć profilu z pliku CSV.")
