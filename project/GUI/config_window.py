@@ -1,6 +1,5 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from typing import Callable
 from project.core.config_manager import ConfigDataManager
 from project.config.count_per_loader import (
     fetch_workplace_config, add_workplace, update_workplace_full, delete_workplace
