@@ -5,6 +5,7 @@ import threading
 import sys
 import json
 from pathlib import Path
+from paths import BUILD_PATH, LATEST_JSON_PATH
 
 class ReleaseBuilder:
     def __init__(self, version: str, notes: str, log_callback, done_callback):
@@ -126,7 +127,7 @@ class ReleaseBuilder:
     def _upload_to_server(self, local_zip_path: Path) -> str:
         self.log("Krok 4: Kopiowanie archiwum na dysk sieciowy...")
         
-        target_dir = Path(r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\builds")
+        target_dir = Path(BUILD_PATH)
         target_path = target_dir / local_zip_path.name
         
         shutil.copy2(local_zip_path, target_path)
@@ -135,7 +136,7 @@ class ReleaseBuilder:
 
     def _update_latest_json(self, sha256_hash: str, target_zip_path: str):
         self.log("Krok 5: Aktualizacja pliku latest.json...")
-        latest_json_path = Path(r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\latest.json")
+        latest_json_path = Path(LATEST_JSON_PATH)
         
         try:
         
