@@ -13,8 +13,8 @@ DOUBLE_SIDED_MACHINES_CONFIG = BASE_DIR / "config" / "double_sided_machines.json
 # --- ścieżka do pliku z helpem ---
 HELP_SECTIONS_PATH = BASE_DIR / "data" / "help_sections.json"
 HELP_SECTIONS_IMAGES = BASE_DIR / "data" / "help_images"
-LATEST_JSON_PATH = r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\latest.json"
-FOIL_REPORTS_PATH = r"\\na02\groups\Produkcja\Planowanie OKL\Production Counter Program\FoilReports"
+LATEST_JSON_PATH = r"\\na02\groups\3.PROJEKTY\Production Counter Program\latest.json"
+FOIL_REPORTS_PATH = r"\\na02\groups\3.PROJEKTY\Production Counter Program\FoilReports"
 
 
 # --- ścieżki do serwera
