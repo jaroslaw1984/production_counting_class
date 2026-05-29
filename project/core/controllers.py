@@ -1,12 +1,11 @@
 from project.core.logic.db_calc import build_db_report_pieces
 from project.config.workplace_config_provider import merge_db_and_csv_config
 from project.config.count_per_loader import update_count_by_shift
-from project.config.paths import MACHINE_CONFIG_PATH, FOIL_REPORTS_PATH
+from project.config.paths import MACHINE_CONFIG_PATH, CONFING_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
 from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines, normalize_db_df 
 from project.core.logic.docx_export import export_report_docx
 from project.core.logic.smart_matcher import SmartPlanMatcher
-from project.config.paths import CONFING_PATH
 from project.core.logic.scheduling import add_shifts, pl_weekday_name, round_shifts_custom
 from project.core.logic.foil_exporter import FoilExporter
 from pathlib import Path
