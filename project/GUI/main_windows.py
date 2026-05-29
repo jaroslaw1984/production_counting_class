@@ -2,7 +2,8 @@ import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
-from project.GUI.popups import MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, ReportParamsPopup, OrderIdPopup, CalcModePopup, ProgressPopup
+from project.GUI.popups import (MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, 
+                                ReportParamsPopup, OrderIdPopup, CalcModePopup, ProgressPopup)
 from project.config.version import PROGRAM_NAME
 from project.GUI.config_window import ConfigWindow
 from project.core.config_manager import ConfigDataManager
