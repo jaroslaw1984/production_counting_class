@@ -234,7 +234,7 @@ def fetch_bom_for_articles(matnr_list: list) -> pd.DataFrame:
     
     sql = f"""
         SELECT MATNR, KOLOR, IDNRK, POSNR
-        FROM HANA_INDEKS_BOM_LINIA
+        FROM tblHANAIndeksBomLinia
         WHERE MATNR IN ('{matnr_str}')
           AND (IDNRK LIKE 'F%' OR POSNR IN ('0050', '0060', '0090'))
         ORDER BY MATNR, POSNR
