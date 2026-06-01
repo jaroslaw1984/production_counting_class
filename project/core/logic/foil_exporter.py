@@ -208,7 +208,8 @@ class FoilExporter:
         out_dir.mkdir(parents=True, exist_ok=True)
         
         safe_name = str(machine_name).replace("/", "-").replace("\\", "-")
-        file_path = out_dir / f"{safe_name}_{date.today().strftime('%Y-%m-%d')}.json"
+        timestamp_str = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        file_path = out_dir / f"{safe_name}_{timestamp_str}.json"
         
         snapshot_date_str = date.today().strftime('%d.%m.%Y')
         shift_info_str = "" # Zmienna na "czwartek (zmiana 3)"
