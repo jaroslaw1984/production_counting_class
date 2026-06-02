@@ -60,14 +60,6 @@ class FoilExporter:
             df_plan[profile_col] = df_plan[profile_col].astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
             matnr_list = df_plan[profile_col].dropna().unique().tolist()
 
-            out_dir = Path(FOIL_REPORTS_PATH)
-            safe_name = str(machine_name).replace("/", "-").replace("\\", "-")
-            file_path = out_dir / f"{safe_name}_{date.today().strftime('%Y-%m-%d')}.json"
-            
-            if file_path.exists():
-                if not self.view.show_yes_no("Raport istnieje", "Czy zastąpić istniejący raport?"):
-                    return 
-
             self.view.show_progress_popup("Generowanie raportu folii...")
             threading.Thread(target=lambda: self._background_task(df_plan, matnr_list, machine_name, profile_col, is_double_sided_machine), daemon=True).start()
 
