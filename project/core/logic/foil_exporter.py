@@ -179,7 +179,16 @@ class FoilExporter:
             prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
             for _, bom_row in prot_req.iterrows():
                 idnrk = str(bom_row['IDNRK'])
-                report_data['protective'][idnrk] = report_data['protective'].get(idnrk, 0.0) + meters
+                
+                # Wyciągamy bazę geometrii
+                base_geometry = matnr.split('-')[0]
+                
+                # Tworzymy podkategorię dla geometrii, jeśli jeszcze nie istnieje
+                if base_geometry not in report_data['protective']:
+                    report_data['protective'][base_geometry] = {}
+                    
+                # Sumujemy folie wewnątrz danej geometrii
+                report_data['protective'][base_geometry][idnrk] = report_data['protective'][base_geometry].get(idnrk, 0.0) + meters
 
             if progress_callback and (i % 5 == 0 or i == total_groups - 1):
                 progress_callback(i + 1, total_groups)
