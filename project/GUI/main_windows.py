@@ -1,13 +1,15 @@
 import customtkinter as ctk
+import json
+from pathlib import Path
 from tkinter import messagebox, filedialog
 from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
 from project.GUI.popups import (MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, 
                                 ReportParamsPopup, OrderIdPopup, CalcModePopup, ProgressPopup)
-from project.config.version import PROGRAM_NAME
+from project.config.version import PROGRAM_NAME, PROGRAM_VERSION
 from project.GUI.config_window import ConfigWindow
 from project.core.config_manager import ConfigDataManager
-from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFING_PATH
+from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFING_PATH, LATEST_JSON_PATH
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -24,6 +26,11 @@ class MainWindow:
         self.root = ctk.CTk()
         self.root.title(PROGRAM_NAME)
         self.root.geometry("840x640")
+        
+        # Flaga, by nie spamować okienkiem aktualizacji przy każdym odświeżeniu danych
+        self.update_notified = False
+        # Odpalamy pętlę sprawdzającą aktualizacje w osobnym wątku, by nie blokować GUI
+        self.root.after(2000, self.auto_update_check)  
         
         # --- Ustawienia czcionki ---
         self.default_font = ctk.CTkFont(family="Segoe UI", size=14)
@@ -692,3 +699,44 @@ class MainWindow:
             self.progress_popup.grab_release()
             self.progress_popup.destroy()
         self.progress_popup = None
+        
+    def _version_tuple(self, v: str) -> tuple[int, ...]:
+        """Funkcja pomocnicza do porównywania wersji."""
+        try:
+            return tuple(int(x) for x in str(v).strip().split("."))
+        except Exception:
+            return (0,)
+
+    def auto_update_check(self):
+        """Pętla co 15 minut sprawdzająca aktualizacje w tle."""
+        if not self.update_notified:
+            # Odpalamy sprawdzenie w osobnym wątku, żeby nie zablokować GUI
+            import threading
+            threading.Thread(target=self._background_update_task, daemon=True).start()
+        
+        # Ponów za 15 minut (900 000 ms)
+        self.root.after(900000, self.auto_update_check)
+
+    def _background_update_task(self):
+        """Funkcja pracująca w tle. Otwiera JSONa z sieci i sprawdza wersję."""
+        try:
+            p = Path(LATEST_JSON_PATH)
+            if not p.exists():
+                return
+                
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            server_version = str(data.get("version", "")).strip()
+            if server_version:
+                if self._version_tuple(server_version) > self._version_tuple(PROGRAM_VERSION):
+                    # Znaleziono nowszą wersję! Zlecamy głównemu wątkowi GUI wyświetlenie okna
+                    self.root.after(0, lambda: self._show_update_popup(server_version))
+        except Exception as e:
+            print(f"[Auto-Update] Błąd sprawdzania wersji w tle: {e}")
+
+    def _show_update_popup(self, new_version):
+        """Wyświetla główne okno O Programie z gotowym przyciskiem."""
+        if not self.update_notified:
+            self.update_notified = True  # Blokujemy kolejne wyskakiwanie
+            AboutPopup(self.root, discovered_version=new_version)

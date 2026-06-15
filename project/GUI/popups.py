@@ -213,7 +213,7 @@ class MachineSelectPopup(ctk.CTkToplevel):
     # # # # # # # # # # # # # # # # # # # # 
 
 class AboutPopup(ctk.CTkToplevel):
-    def __init__(self, parent):
+    def __init__(self, parent: ctk.CTk, discovered_version=None):
         super().__init__(parent)
         self.title("O programie")
         self.resizable(False, False)
@@ -224,8 +224,13 @@ class AboutPopup(ctk.CTkToplevel):
         # --- Uruchamia budowę UI (tylko jedna funkcja budująca) ---
         self._build_ui()
         
-        # --- Uruchomienie sprawdzania aktualizacji ---
-        self._check_update_async()
+        # --- ZMIANA: Sprawdzamy, czy okno zostało wywołane przez auto-updatera ---
+        if discovered_version:
+            # Wiemy już, że jest nowa wersja z pętli w tle głównego okna
+            self._on_update_check_done(discovered_version, None)
+        else:
+            # Ręczne kliknięcie z menu bocznego - sprawdzamy plik JSON
+            self._check_update_async()
                 
     def _build_ui(self):
         # --- kolumna nazwy okna --- 
