@@ -236,7 +236,11 @@ def fetch_bom_for_articles(matnr_list: list) -> pd.DataFrame:
         SELECT MATNR, KOLOR, IDNRK, POSNR
         FROM tblHANAIndeksBomLinia
         WHERE MATNR IN ('{matnr_str}')
-          AND (IDNRK LIKE 'F%' OR POSNR IN ('0050', '0060', '0090'))
+          AND (
+              IDNRK LIKE 'F%' 
+              OR POSNR IN ('0050', '0060', '0090')
+              OR (POSNR IN ('0020', '0030', '0070') AND IDNRK LIKE '0000%')
+          )
         ORDER BY MATNR, POSNR
     """
     

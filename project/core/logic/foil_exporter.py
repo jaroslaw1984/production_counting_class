@@ -196,13 +196,24 @@ class FoilExporter:
         return report_data, list(missing_boms)
 
     def _extract_width_and_type(self, idnrk: str):
+        """Dynamicznie wyciąga typ i szerokość z IDNRK. Folie numeryczne zrzuca na koniec."""
         idnrk = str(idnrk).strip()
+        
+        # Odcięcie wiodących zer
+        clean_id = idnrk.lstrip('0')
+        
+        # Jeśli po odcięciu zer zostały same cyfry (nasza niestandardowa folia)
+        if clean_id.isdigit():
+            return 'Z_SPECIAL', 9999 
+            
         parts = idnrk.split('.')
+        foil_prefix = parts[0]
         try:
             width = int(parts[-1])
-        except:
+        except (ValueError, IndexError):
             width = 0
-        return parts[0], width
+            
+        return foil_prefix, width
 
     def _save_json_payload(self, machine_name, report_data, is_double_sided_machine) -> bool:
         out_dir = Path(FOIL_REPORTS_PATH)
