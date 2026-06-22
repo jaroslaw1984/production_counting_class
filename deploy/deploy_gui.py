@@ -1,6 +1,7 @@
 import customtkinter as ctk
+from project.config.version import PROGRAM_VERSION
 from datetime import datetime
-from deploy_logic import ReleaseBuilder
+from deploy.deploy_logic import ReleaseBuilder
 
 class DeployApp(ctk.CTk):
     def __init__(self):
@@ -31,7 +32,7 @@ class DeployApp(ctk.CTk):
         
         self.version_label = ctk.CTkLabel(
             self.version_frame, 
-            text="Nowa wersja (np. 2.2.3):", 
+            text=f"Nowa wersja:", 
             font=ctk.CTkFont(family="Segoe UI", size=14)
         )
         self.version_label.pack(side="left", padx=(0, 10))
@@ -42,6 +43,9 @@ class DeployApp(ctk.CTk):
             placeholder_text="Wpisz wersję..."
         )
         self.version_entry.pack(side="left")
+        
+        # --- AUTOMATYCZNE WPISANIE WERSJI: ---
+        self.version_entry.insert(0, PROGRAM_VERSION)
 
         # --- SEKCJA: NOTATKI ---
         self.notes_frame = ctk.CTkFrame(self, fg_color="transparent")

@@ -5,7 +5,7 @@ import threading
 import sys
 import json
 from pathlib import Path
-from paths import BUILD_PATH, LATEST_JSON_PATH
+from deploy.paths import BUILD_PATH, LATEST_JSON_PATH
 
 class ReleaseBuilder:
     def __init__(self, version: str, notes: str, log_callback, done_callback):
@@ -22,8 +22,6 @@ class ReleaseBuilder:
         
         # Miejsce na tymczasowego ZIPa (zapiszemy go obok głównego folderu dist)
         self.zip_temp_path = self.base_dir / "dist" / f"ProductionCounter_{self.version}"
-
-        # TODO: Ścieżki sieciowe dodamy w kolejnym kroku
 
     def start(self):
         """Uruchamia cały proces w tle, by nie zamrozić okna programu."""
