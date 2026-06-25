@@ -4,13 +4,12 @@ import pandas as pd
 
 # DB loader:
 # jeśli masz inaczej ustawione importy, dopasuj ścieżkę importu
-from project.config.count_per_loader import fetch_workplace_config
+from project.config.count_per_loader import fetch_workplace_config, fetch_profiles_config
 
 
 def _project_dir() -> Path:
     # workplace_config_provider.py jest w project/config/
     return Path(__file__).resolve().parents[1]  # -> project/
-
 
 def _load_csv_config() -> pd.DataFrame:
     cfg_path = _project_dir() / "config" / "machine_config.csv"
@@ -79,3 +78,64 @@ def merge_db_and_csv_config(sync_missing_to_db: bool = False) -> tuple[pd.DataFr
         insert_missing_workplaces(df_missing)
 
     return df_merged, source, missing_in_db
+
+def _load_csv_profiles() -> pd.DataFrame:
+    """Wczytuje lokalny plik z profilami jako awaryjny fallback."""
+    cfg_path = _project_dir() / "config" / "profile_config.csv"
+    if not cfg_path.exists():
+        # Zabezpieczenie, gdyby ktoś przypadkiem usunął plik CSV
+        return pd.DataFrame(columns=["profile", "side", "setting_time"])
+        
+    df = pd.read_csv(cfg_path, sep=";")
+    
+    # Normalizacja typów
+    df["profile"] = df["profile"].astype(str).str.strip()
+    df["side"] = df["side"].astype(str).str.strip()
+    # Wymuszamy liczby całkowite dla czasu zbrojenia
+    df["setting_time"] = pd.to_numeric(df["setting_time"], errors="coerce").fillna(0).astype(int)
+    return df
+
+def _normalize_profiles_db_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["profile"] = df["profile"].astype(str).str.strip()
+    df["side"] = df["side"].astype(str).str.strip()
+    df["setting_time"] = pd.to_numeric(df["setting_time"], errors="coerce").fillna(0).astype(int)
+    return df
+
+def merge_db_and_csv_profiles() -> tuple[pd.DataFrame, str]:
+    """
+    Zwraca (df_merged, source).
+    Pobiera dane z DB. Jeśli w DB brakuje jakichś wpisów (lub DB leży), 
+    uzupełnia je danymi z lokalnego pliku CSV.
+    """
+    df_csv = _load_csv_profiles()
+
+    try:
+        df_db = fetch_profiles_config()
+        if not df_db.empty:
+            df_db = _normalize_profiles_db_df(df_db)
+    except Exception:
+        return df_csv, "csv"
+
+    if df_db.empty:
+        return df_csv, "csv"
+
+    # Tworzymy zbiory kluczy (profile, side) do porównania co mamy w DB a co w CSV
+    db_set = set(zip(df_db["profile"], df_db["side"]))
+    csv_set = set(zip(df_csv["profile"], df_csv["side"]))
+    
+    missing_in_db_keys = csv_set - db_set
+    
+    if missing_in_db_keys:
+        # Z CSV wybieramy tylko te wiersze, których nie ma w bazie
+        # Robimy to ustawiając multi-index i filtrując
+        df_csv_indexed = df_csv.set_index(["profile", "side"])
+        df_missing = df_csv_indexed[df_csv_indexed.index.isin(missing_in_db_keys)].reset_index()
+        
+        df_merged = pd.concat([df_db, df_missing], ignore_index=True)
+        source = "db+csv"
+    else:
+        df_merged = df_db.copy()
+        source = "db"
+
+    return df_merged, source

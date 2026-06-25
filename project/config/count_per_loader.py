@@ -1,8 +1,9 @@
 import pandas as pd
 import pyodbc
-from sqlalchemy import create_engine
 import urllib.parse
 from typing import cast
+from sqlalchemy import create_engine
+from paths import PROFILES_TABLE
 
 PLAN_SERVER = "kronos.sip.local"
 PLAN_DB = "Raporty"
@@ -151,3 +152,14 @@ def delete_workplace(workplace: str) -> bool:
         print(f"Błąd SQL (DELETE): {e}")
         return False
 
+def fetch_profiles_config() -> pd.DataFrame:
+    """Pobiera konfigurację profili i czasów zbrojeń z bazy danych."""
+    sql = f"SELECT profile, side, setting_time FROM {PROFILES_TABLE}"
+    engine = _get_plan_engine()
+    try:
+        # Używamy pandas do szybkiego załadowania wyniku SQL do DataFrame
+        df = pd.read_sql(sql, engine)
+        return df
+    except Exception as e:
+        print(f"Błąd SQL (Odczyt profili): {e}")
+        return pd.DataFrame() # Zwracamy pusty DataFrame w razie błędu (np. brak dostępu)

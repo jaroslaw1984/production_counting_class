@@ -24,5 +24,8 @@ VIEW_FULLNAME = "hydadm.SOP_Abfrage_Auftragsbestand_Sochacki"
 SAP_SERVER = "kronos.sip.local"
 SAP_DATABASE = "Raporty"
 
+# --- ścieżka do tabeli z profilami ---
+PROFILES_TABLE = "dbo.tblPlanowanieProfilesSetAndTime"
+
 # --- ścieżka do szablonu raportu DOCX ---
 REPORT_TEMPLATE_PATH = BASE_DIR / "core"/ "logic" / "templates" / "report_template.docx"
