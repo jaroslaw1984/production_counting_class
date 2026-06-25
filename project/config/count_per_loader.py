@@ -3,7 +3,7 @@ import pyodbc
 import urllib.parse
 from typing import cast
 from sqlalchemy import create_engine
-from paths import PROFILES_TABLE
+from project.config.paths import PROFILES_TABLE
 
 PLAN_SERVER = "kronos.sip.local"
 PLAN_DB = "Raporty"
@@ -162,4 +162,56 @@ def fetch_profiles_config() -> pd.DataFrame:
         return df
     except Exception as e:
         print(f"Błąd SQL (Odczyt profili): {e}")
-        return pd.DataFrame() # Zwracamy pusty DataFrame w razie błędu (np. brak dostępu)
+        # Zwracamy pusty DataFrame w razie błędu (np. brak dostępu)
+        return pd.DataFrame() 
+    
+def save_profile_to_db(profile: str, side: str, setting_time: int) -> bool:
+    """Zapisuje nowy lub aktualizuje istniejący profil w bazie danych."""
+    # Wymuszamy format zgodny z bazą (np. '0021')
+    profile_clean = str(profile).strip()
+    side_clean = str(side).strip().zfill(4)
+    
+    check_sql = f"SELECT COUNT(*) FROM {PROFILES_TABLE} WHERE profile = ? AND side = ?"
+    update_sql = f"UPDATE {PROFILES_TABLE} SET setting_time = ? WHERE profile = ? AND side = ?"
+    insert_sql = f"INSERT INTO {PROFILES_TABLE} (profile, side, setting_time) VALUES (?, ?, ?)"
+    
+    engine = _get_plan_engine()
+    try:
+        with engine.raw_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(check_sql, (profile_clean, side_clean))
+            row = cur.fetchone()
+            exists = row[0] > 0 if row else False
+            
+            if exists:
+                cur.execute(update_sql, (setting_time, profile_clean, side_clean))
+            else:
+                cur.execute(insert_sql, (profile_clean, side_clean, setting_time))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"Błąd SQL (Zapis profilu): {e}")
+        return False
+
+def delete_profile_from_db(profile: str, side: str) -> bool:
+    """Usuwa profil z bazy danych."""
+    profile_clean = str(profile).strip()
+    side_clean = str(side).strip().zfill(4)
+    
+    sql = f"DELETE FROM {PROFILES_TABLE} WHERE profile = ? AND side = ?"
+    engine = _get_plan_engine()
+    try:
+        with engine.raw_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (profile_clean, side_clean))
+            deleted_rows = cur.rowcount  # Sprawdzamy, ile wierszy faktycznie usunięto
+            conn.commit()
+            
+        if deleted_rows == 0:
+            print(f"UWAGA SQL: Próbowano usunąć {profile_clean} ({side_clean}), ale nie znaleziono takiego wpisu w bazie.")
+            return False
+            
+        return True
+    except Exception as e:
+        print(f"Błąd SQL (Usuwanie profilu): {e}")
+        return False

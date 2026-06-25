@@ -104,38 +104,17 @@ def _normalize_profiles_db_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def merge_db_and_csv_profiles() -> tuple[pd.DataFrame, str]:
     """
-    Zwraca (df_merged, source).
-    Pobiera dane z DB. Jeśli w DB brakuje jakichś wpisów (lub DB leży), 
-    uzupełnia je danymi z lokalnego pliku CSV.
+    Szybka wersja: Odpytuje bazę danych. 
+    Jeśli baza odpowiada, zwraca dane od razu. W przeciwnym razie ładuje CSV.
+    Nie porównuje już różnic, aby nie obciążać interfejsu.
     """
-    df_csv = _load_csv_profiles()
-
     try:
         df_db = fetch_profiles_config()
         if not df_db.empty:
-            df_db = _normalize_profiles_db_df(df_db)
-    except Exception:
-        return df_csv, "csv"
-
-    if df_db.empty:
-        return df_csv, "csv"
-
-    # Tworzymy zbiory kluczy (profile, side) do porównania co mamy w DB a co w CSV
-    db_set = set(zip(df_db["profile"], df_db["side"]))
-    csv_set = set(zip(df_csv["profile"], df_csv["side"]))
-    
-    missing_in_db_keys = csv_set - db_set
-    
-    if missing_in_db_keys:
-        # Z CSV wybieramy tylko te wiersze, których nie ma w bazie
-        # Robimy to ustawiając multi-index i filtrując
-        df_csv_indexed = df_csv.set_index(["profile", "side"])
-        df_missing = df_csv_indexed[df_csv_indexed.index.isin(missing_in_db_keys)].reset_index()
+            return _normalize_profiles_db_df(df_db), "db"
+    except Exception as e:
+        print(f"Odczyt DB dla profili nie powiódł się (fallback na CSV): {e}")
         
-        df_merged = pd.concat([df_db, df_missing], ignore_index=True)
-        source = "db+csv"
-    else:
-        df_merged = df_db.copy()
-        source = "db"
-
-    return df_merged, source
+    # Jeśli DB zawiedzie lub jest puste, po prostu ładujemy CSV
+    df_csv = _load_csv_profiles()
+    return df_csv, "csv"

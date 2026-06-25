@@ -1,7 +1,9 @@
 import csv
 import json
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, cast
+from project.config.workplace_config_provider import merge_db_and_csv_profiles
+from project.config.count_per_loader import save_profile_to_db, delete_profile_from_db
 
 class ConfigDataManager:
     """
@@ -104,13 +106,39 @@ class ConfigDataManager:
             return False  # Nic nie usunięto
         return self._write_csv(self.machines_csv_path, fieldnames, new_machines)
 
-    # ==========================================
-    # OBSŁUGA GEOMETRII / PROFILI (CSV)
-    # ==========================================
+    # ==========================================\
+    # OBSŁUGA GEOMETRII / PROFILI (DB + CSV)
+    # ==========================================\
     def get_profiles(self) -> List[Dict[str, str]]:
-        return self._read_csv(self.profiles_csv_path)
+        try:
+            df, source = merge_db_and_csv_profiles()
+            
+            # Dodatkowe zabezpieczenie upewniające się, że kolumna istnieje przed rzutowaniem
+            if 'setting_time' not in df.columns:
+                print("BŁĄD: Brak kolumny 'setting_time' w pobranych danych!")
+                return []
+                
+            # Konwersja int z powrotem na str, aby utrzymać kompatybilność z obecnym kodem GUI
+            df['setting_time'] = df['setting_time'].astype(str)
+            
+            # Zamiana DataFrame na format jakiego oczekuje GUI
+            return cast(List[Dict[str, str]], df.to_dict('records'))
+            
+        except Exception as e:
+            # W razie jakiegokolwiek błędu wypiszemy go, ale zwrócimy pustą listę,
+            # dzięki temu GUI CustomTkinter nie zniknie w połowie rysowania.
+            print(f"KRYTYCZNY BŁĄD podczas budowania listy profili: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     def save_profile(self, profile: str, side: str, setting_time: str) -> bool:
+        # 1. Zapis do bazy SQL jako głównego źródła
+        db_success = save_profile_to_db(profile, side, int(setting_time))
+        if not db_success:
+            print("Nie udało się zapisać w DB. Dane zostaną zapisane tylko w CSV.")
+
+        # 2. Zapis do pliku CSV (lokalny bufor / fallback)
         profiles = self.get_profiles()
         fieldnames = ['profile', 'side', 'setting_time']
         
@@ -127,11 +155,31 @@ class ConfigDataManager:
         return self._write_csv(self.profiles_csv_path, fieldnames, profiles)
 
     def delete_profile(self, profile: str, side: str) -> bool:
+        # Normalizacja danych wysyłanych z GUI
+        profile_clean = str(profile).strip()
+        side_clean = str(side).strip().zfill(4)
+        
+        # 1. Usunięcie z bazy SQL
+        db_success = delete_profile_from_db(profile_clean, side_clean)
+        if not db_success:
+             print("UWAGA: Nie usunięto z DB (może nie istnieć lub brak połączenia).")
+
+        # 2. Aktualizacja pliku CSV
         profiles = self.get_profiles()
         fieldnames = ['profile', 'side', 'setting_time']
-        # Usuwamy tylko ten wiersz, gdzie zgadza się i profil, i strona
-        new_profiles = [p for p in profiles if not (p['profile'] == profile and p['side'] == side)]
         
-        if len(profiles) == len(new_profiles):
-            return False
-        return self._write_csv(self.profiles_csv_path, fieldnames, new_profiles)
+        # Filtrujemy listę używając znormalizowanych wartości
+        new_profiles = [
+            p for p in profiles 
+            if not (str(p['profile']).strip() == profile_clean and str(p['side']).strip().zfill(4) == side_clean)
+        ]
+        
+        # 3. Zapisujemy odświeżoną listę do lokalnego pliku CSV
+        self._write_csv(self.profiles_csv_path, fieldnames, new_profiles)
+        
+        # Zwracamy True, jeśli baza zgłosiła usunięcie ALBO usunęliśmy z lokalnego pliku.
+        # Dzięki temu GUI odświeży się prawidłowo, a plik CSV będzie idealnym odbiciem bazy.
+        if db_success or len(new_profiles) < len(profiles):
+            return True
+            
+        return False
