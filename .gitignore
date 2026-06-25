@@ -224,5 +224,6 @@ __marimo__/
 
 # Python files
 refacotr_main_window.py
+migrate_profiles.py
 pyinstaller_howTo.txt
 machine_config.csv
