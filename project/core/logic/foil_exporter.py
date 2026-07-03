@@ -2,7 +2,6 @@ import json
 import threading
 import traceback
 import re
-import os
 from pathlib import Path
 from datetime import datetime, date
 from project.config.db_loader import fetch_bom_for_articles, set_foil_report_queued
@@ -223,40 +222,16 @@ class FoilExporter:
         timestamp_str = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         file_path = out_dir / f"{safe_name}_{timestamp_str}.json"
         
-        snapshot_date_str = date.today().strftime('%d.%m.%Y')
-        shift_info_str = "" # Zmienna na "czwartek (zmiana 3)"
+        # --- Pobieramy gotowe dane wstrzyknięte przez kontroler ---
+        report_date_str = self.state.last_report_data.get("report_date", date.today().isoformat())
+        raw_shift_info = self.state.last_report_data.get("shift_info", "brak danych")
         
-        try:
-            snap_path = Path(os.getenv("APPDATA") or Path.home()) / "ProductionCounter" / "production_snapshot.json"
-            if snap_path.exists():
-                with open(snap_path, "r", encoding="utf-8") as f:
-                    snap_data = json.load(f)
-                    if "snapshot_date" in snap_data:
-                        parsed_date = datetime.strptime(snap_data["snapshot_date"], "%Y-%m-%d")
-                        snapshot_date_str = parsed_date.strftime("%d.%m.%Y")
-                    
-                    # --- WYCIĄGANIE ZMIANY Z END_BY_MACHINE ---
-                    if "end_by_machine" in snap_data:
-                        # Konwersja z "Maszyna 4" na "WLO-U004", aby dopasować do klucza w JSON
-                        machine_key = machine_name
-                        m = re.search(r'\d+', machine_name)
-                        if m:
-                            machine_key = f"WLO-U{m.group().zfill(3)}"
-                            
-                        raw_shift_info = snap_data["end_by_machine"].get(machine_key, "")
-                        if raw_shift_info:
-                            # Usuwamy "Przewidywana produkcja do:"
-                            clean_shift = raw_shift_info.replace("Przewidywana produkcja do:", "").strip()
-                            # Usuwamy datę z nawiasu np. "(21.05.2026)" na samym końcu
-                            clean_shift = re.sub(r"\s*\(\d{2}\.\d{2}\.\d{4}\)$", "", clean_shift).strip()
-                            shift_info_str = clean_shift
-                            
-        except Exception as e:
-            print(f"Nie udało się odczytać daty snapshota dla raportu folii: {e}")
+        # Usuwamy człon daty (np. " (07.07.2026)") zostawiając sam dzień i zmianę
+        shift_info_clean = re.sub(r'\s*\(\d{2}\.\d{2}\.\d{4}\)', '', raw_shift_info).strip()
         
         # Wstrzyknięcie danych do wnętrza raportu
-        report_data["snapshot_date"] = snapshot_date_str
-        report_data["shift_info"] = shift_info_str
+        report_data["snapshot_date"] = datetime.strptime(report_date_str, "%Y-%m-%d").strftime('%d.%m.%Y')
+        report_data["shift_info"] = shift_info_clean  # Używamy wyczyszczonej zmiennej
         
         payload = {
             "machine": machine_name,

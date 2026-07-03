@@ -183,8 +183,45 @@ class MainController:
     
     # --- Obsługa eksportu raportu folii do pliku JSON ---
     def handle_export_foil_report(self):
-        exporter = FoilExporter(self.state, self.view)
-        exporter.process_export()
+        # 1. Upewniamy się, że mamy wygenerowany raport i znamy linię produkcyjną
+        if not hasattr(self.state, "last_report_data") or not self.state.last_report_data:
+            self.view.show_warning("Brak danych", "Najpierw wygeneruj raport SAP przed wysłaniem folii.")
+            return
+            
+        linia = self.state.last_report_data.get("line")
+        if not linia:
+            self.view.show_warning("Brak danych", "Brak informacji o linii produkcyjnej w raporcie.")
+            return
+
+        # 2. Pobieramy domyślną datę ze snapshota
+        current_shift_info = self._get_shift_info_from_snapshot(linia)
+
+        # 3. Pytamy użytkownika (klasyczny popup Yes/No)
+        is_correct = self.view.show_yes_no(
+            "Weryfikacja terminu na folię",
+            f"Termin pobrany ze snapshota dla maszyny {linia}:\n\n{current_shift_info}\n\nCzy ten termin jest prawidłowy?\n(Kliknij 'Nie', jeśli to dokładka i chcesz zmienić termin)"
+        )
+
+        if is_correct:
+            # Użytkownik zatwierdził -> zostawiamy w stanie domyślną datę i generujemy raport
+            self.state.last_report_data["shift_info"] = current_shift_info
+            exporter = FoilExporter(self.state, self.view)
+            exporter.process_export()
+        else:
+            # Użytkownik chce zmienić -> otwieramy nowy popup
+            from project.GUI.popups import show_foil_shift_popup
+            
+            def on_shift_selected(new_day, new_shift):
+                # Callback wywoływany po kliknięciu "Generuj" wewnątrz popupu
+                new_info = f"{new_day} (zmiana {new_shift})"
+                
+                # Wstrzykujemy nową datę do stanu, aby FoilExporter ją przechwycił
+                self.state.last_report_data["shift_info"] = new_info
+                
+                exporter = FoilExporter(self.state, self.view)
+                exporter.process_export()
+
+            show_foil_shift_popup(self.view.root, on_shift_selected)
     
     # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):

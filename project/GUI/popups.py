@@ -206,7 +206,7 @@ class MachineSelectPopup(ctk.CTkToplevel):
 
         self.destroy()
         # Dodajemy saturday_by_machine jako trzeci argument (zmieniamy kolejność/ilość argumentów)
-        self.on_confirm(selected, pps_by_machine, saturday_by_machine, sunday_by_machine, self.save_snapshot_var.get(), changes, should_save_config)           
+        self.on_confirm(selected, pps_by_machine, saturday_by_machine, sunday_by_machine, self.save_snapshot_var.get(), changes, should_save_config)        
 
     # # # # # # # # # # # # # # # # # # # # 
     # Popup dla przycisku 'O programie'   #
@@ -912,7 +912,8 @@ class ReportParamsPopup(ctk.CTkToplevel):
     def _only_digits(self, new_value: str) -> bool:
         # pozwalamy na pusty (user jeszcze pisze)
         return new_value.isdigit() or new_value == ""    
-    
+
+# --- Klasa okienka popup do ustawiania harmonogramu startu liczenia grupy (zmiana, tryb startu, data startu) ---    
 class SchedulePopup(ctk.CTkToplevel):
     def __init__(self, parent, on_confirm):
         super().__init__(parent)
@@ -987,7 +988,8 @@ class SchedulePopup(ctk.CTkToplevel):
         # --- wywołanie callbacka (przekazanie wyniku do kontrolera) ---
         self.on_confirm(result)
         self.destroy()
-        
+
+# --- Klasa okienka popup do wpisania numeru zlecenia i potwierdzenia ---        
 class OrderIdPopup(ctk.CTkToplevel):
     def __init__(self, parent, on_confirm):
         super().__init__(parent)
@@ -1027,7 +1029,7 @@ class OrderIdPopup(ctk.CTkToplevel):
         self.on_confirm(val)
         self.destroy()
 
-
+# --- Klasa okienka popup do ustawiania parametrów przeliczenia produkcji (tryb, prędkość, szt./zmianę, kalendarz) ---
 class CalcModePopup(ctk.CTkToplevel):
     def __init__(self, parent, workplace: str, default_speed: float, default_pieces_per_shift: int, on_confirm):
         super().__init__(parent)
@@ -1132,6 +1134,7 @@ class CalcModePopup(ctk.CTkToplevel):
         self.on_confirm(result)
         self.destroy()
         
+# --- Klasa okienka popup do pokazywania postępu przetwarzania i komunikatów końcowych (sukces/raport) ---        
 class ProgressPopup(ctk.CTkToplevel):
     def __init__(self, parent, title="Postęp"):
         super().__init__(parent)
@@ -1202,3 +1205,49 @@ class ProgressPopup(ctk.CTkToplevel):
                 command=on_ok_callback
             )
             self.ok_button.pack(pady=(0, 20))
+            
+# --- Popup dla przycisku 'Zmiana terminu folii' ---
+def show_foil_shift_popup(parent, callback):
+    """
+    Popup wyświetlany przed eksportem folii, jeśli użytkownik odrzuci termin ze snapshota.
+    Przyjmuje funkcję 'callback', która uruchamia się z wybranym dniem i zmianą.
+    """
+    popup = ctk.CTkToplevel(parent)
+    popup.title("Zmiana terminu folii")
+    popup.geometry("320x220")
+    popup.grab_set()
+    popup.attributes("-topmost", True)
+
+    ctk.CTkLabel(
+        popup, 
+        text="Wybierz termin dokładki:", 
+        font=("Arial", 14, "bold")
+    ).pack(pady=(15, 10))
+
+    # Dropdown - Dzień tygodnia
+    days = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
+    day_var = ctk.StringVar(value="poniedziałek")
+    day_cb = ctk.CTkComboBox(popup, values=days, variable=day_var, state="readonly", width=180)
+    day_cb.pack(pady=5)
+
+    # Dropdown - Zmiana
+    shifts = ["1", "2", "3"]
+    shift_var = ctk.StringVar(value="1")
+    shift_cb = ctk.CTkComboBox(popup, values=shifts, variable=shift_var, state="readonly", width=180)
+    shift_cb.pack(pady=5)
+
+    def apply_changes():
+        new_day = day_var.get()
+        new_shift = shift_var.get()
+        popup.destroy()
+        # Wysyłamy wybrane dane z powrotem do controllers.py
+        if callback:
+            callback(new_day, new_shift)
+
+    save_btn = ctk.CTkButton(
+        popup, 
+        text="Zmień termin", 
+        command=apply_changes, 
+    )
+    save_btn.pack(pady=(20, 0))   
+    center_popup(parent, popup)
