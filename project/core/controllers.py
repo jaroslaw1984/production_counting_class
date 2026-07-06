@@ -209,7 +209,7 @@ class MainController:
             exporter.process_export()
         else:
             # Użytkownik chce zmienić -> otwieramy nowy popup
-            from project.GUI.popups import show_foil_shift_popup
+            from project.GUI.popups import ReportParamsPopup
             
             def on_shift_selected(new_day, new_shift):
                 # Callback wywoływany po kliknięciu "Generuj" wewnątrz popupu
@@ -221,7 +221,8 @@ class MainController:
                 exporter = FoilExporter(self.state, self.view)
                 exporter.process_export()
 
-            show_foil_shift_popup(self.view.root, on_shift_selected)
+            temp_popup_handler = ReportParamsPopup(self.view.root, machines=[], on_confirm=lambda: None)
+            temp_popup_handler.show_foil_shift_popup(on_shift_selected)
     
     # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):
