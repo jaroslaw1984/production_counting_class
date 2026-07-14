@@ -368,6 +368,9 @@ class MainController:
             self.df_raw.columns = [" ".join(str(c).replace("\xa0", " ").strip().split()) for c in self.df_raw.columns]
             self.df_raw.columns = [str(c).strip() for c in self.df_raw.columns]
             
+            # === DODAJ TĘ LINIĘ: Usuwanie zduplikowanych kolumn po wyczyszczeniu nazw ===
+            self.df_raw = self.df_raw.loc[:, ~self.df_raw.columns.duplicated()].copy()
+            
             # --- Przekazanie do podwykonawców ---
             df_hydra_queue = self._extract_hydra_queue(self.df_raw)
             df_smart_plan = self._extract_smart_plan(self.df_raw)
@@ -476,6 +479,9 @@ class MainController:
                     out["good_qty_p"] = 0.0
 
                 out["order_id"] = out["order_id"].astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
+                
+                # --- Zabezpieczenie wynikowego Smart Planu przed duplikatami kolumn (po czyszczeniu nazw) ---
+                out = out.loc[:, ~out.columns.duplicated()].copy()
 
                 return out
 
