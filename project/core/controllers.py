@@ -1,7 +1,7 @@
 from project.core.logic.db_calc import build_db_report_pieces
-from project.config.workplace_config_provider import merge_db_and_csv_config
-from project.config.count_per_loader import update_count_by_shift
-from project.config.paths import MACHINE_CONFIG_PATH, CONFING_PATH
+from project.config.workplace_config_provider import merge_db_and_csv_config, _normalize_profiles_db_df
+from project.config.count_per_loader import update_count_by_shift, fetch_profiles_config
+from project.config.paths import MACHINE_CONFIG_PATH
 from project.config.aliases import ORDER_ALIASES, GRUNDPROFIL_ALIASES, ARTICLE_ALIASES, GOOD_PRODUKTION_ALIASES
 from project.config.db_loader import fetch_sap_basic_profiles, fetch_available_machines, fetch_orders_for_machines, normalize_db_df 
 from project.core.logic.docx_export import export_report_docx
@@ -510,7 +510,10 @@ class MainController:
 
         try:
             df_raw = fetch_orders_for_machines(selected_machines)
-            df_profiles = pd.read_csv(CONFING_PATH, sep=";", encoding="utf-8")
+            
+            # --- SSOT: Pobieranie geometrii wyłącznie z bazy SQL ---
+            df_prof_raw = fetch_profiles_config()
+            df_profiles = _normalize_profiles_db_df(df_prof_raw)
             
             if df_raw is None or df_raw.empty:
                 self.view.show_warning("Brak danych", "Baza SQL nie zwróciła żadnych zleceń.")
@@ -647,7 +650,9 @@ class MainController:
                         self.state.machine_cfg = df_mc
 
             # 9. Skomplikowana kalkulacja wyników (Teraz zwraca słownik z danymi!)
-            df_cfg = pd.read_csv(CONFING_PATH, sep=";", encoding="utf-8")
+            df_prof_raw = fetch_profiles_config()
+            df_cfg = _normalize_profiles_db_df(df_prof_raw)
+            
             result_data = self._calculate_confirmation_result(df_cut, df_cfg, workplace, order_id, choice)
 
             # 10. Wyświetlenie wyniku na specjalnej Karcie

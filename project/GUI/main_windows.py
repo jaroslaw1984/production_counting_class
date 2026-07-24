@@ -9,7 +9,7 @@ from project.GUI.popups import (MachineSelectPopup, AboutPopup, HelpWindow, Sche
 from project.config.version import PROGRAM_NAME, PROGRAM_VERSION
 from project.GUI.config_window import ConfigWindow
 from project.core.config_manager import ConfigDataManager
-from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFING_PATH, LATEST_JSON_PATH
+from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFIG_PATH, LATEST_JSON_PATH
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -292,7 +292,7 @@ class MainWindow:
         data_manager = ConfigDataManager(
             ds_machines_path=DOUBLE_SIDED_MACHINES_PATH,
             machines_csv_path=MACHINE_CONFIG_PATH,
-            profiles_csv_path=CONFING_PATH
+            profiles_csv_path=CONFIG_PATH
         )
         ConfigWindow(self.root, data_manager)
         

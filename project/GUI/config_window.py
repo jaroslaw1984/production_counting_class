@@ -38,7 +38,8 @@ class ConfigWindow(ctk.CTkToplevel):
         selected_tab = self.tabview.get()
         
         if selected_tab == "Geometrie" and not self.profiles_rendered:
-            # Rysujemy listę dopiero gdy ktoś wejdzie w zakładkę
+            # Pobieramy świeże dane z bazy dopiero, gdy użytkownik wejdzie w zakładkę
+            self.all_profiles = self.data_manager.get_profiles()
             self._refresh_profiles_list(self.all_profiles)
             self.profiles_rendered = True
 
@@ -276,8 +277,7 @@ class ConfigWindow(ctk.CTkToplevel):
         self.prof_save_btn.pack(side="right", padx=(5, 10), pady=10)
 
         # Pobieramy dane z DataManager i inicjalizujemy pełną listę
-        self.all_profiles = self.data_manager.get_profiles()
-        # self._refresh_profiles_list(self.all_profiles)
+        self.all_profiles = []
 
     def _filter_profiles(self, event=None):
         """Filtruje listę na podstawie wpisanego tekstu w wyszukiwarce."""
@@ -354,7 +354,8 @@ class ConfigWindow(ctk.CTkToplevel):
             self.prof_search_entry.delete(0, 'end')
             self._refresh_profiles_list(self.all_profiles)
         else:
-            messagebox.showerror("Błąd", "Nie udało się zapisać profilu. Zamknij plik w Excelu i spróbuj ponownie.")
+            # Zmiana komunikatu błędu
+            messagebox.showerror("Błąd", "Nie udało się zapisać profilu w bazie danych SQL. Sprawdź połączenie.")
 
     def _delete_profile(self, profile: str, side: str):
         if messagebox.askyesno("Potwierdzenie", f"Czy na pewno usunąć profil {profile} (strona {side})?"):
@@ -364,4 +365,5 @@ class ConfigWindow(ctk.CTkToplevel):
                 # Ponowne wywołanie filtru pozwala zachować wyniki wyszukiwania po usunięciu
                 self._filter_profiles()
             else:
-                messagebox.showerror("Błąd", "Nie udało się usunąć profilu z pliku CSV.")
+                # Zmiana komunikatu błędu
+                messagebox.showerror("Błąd", "Nie udało się usunąć profilu z bazy danych.")
