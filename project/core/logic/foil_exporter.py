@@ -146,34 +146,59 @@ class FoilExporter:
             if requirements.empty:
                 missing_boms.add(matnr)
 
+            # --- Wspólne ustalenie wymaganych pozycji na podstawie zleconej strony ---
+            target_posnrs = op_to_posnr.get(op_side, ['0030', '0020', '0070'])
+
             if is_double_sided_machine:
                 # --- TRYB KOMBAJNU (Wszystko razem) ---
-                for side_pos in ['0030', '0020', '0070']: 
+                for side_pos in target_posnrs: 
                     side_req = requirements[requirements['POSNR'] == side_pos]
-                    for _, bom_row in side_req.iterrows():
-                        idnrk = str(bom_row['IDNRK'])
-                        _, width = self._extract_width_and_type(idnrk)
-                        
+                    
+                    if side_req.empty:
+                        # BRAK FOLII DEKORACYJNEJ W BAZIE -> Wstrzykujemy powiadomienie o F99
                         report_data['combined_side'].append({
-                            'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                            'idnrk': 'F99 (FOLIA KLIENTA)', 
+                            'width': 0, 
+                            'meters': meters, 
+                            'geometry': matnr, 
+                            'order_index': order_idx
                         })
+                    else:
+                        for _, bom_row in side_req.iterrows():
+                            idnrk = str(bom_row['IDNRK'])
+                            _, width = self._extract_width_and_type(idnrk)
+                            
+                            report_data['combined_side'].append({
+                                'idnrk': idnrk, 'width': width, 'meters': meters, 'geometry': matnr, 'order_index': order_idx
+                            })
             else:
                 # --- TRYB PRZEPLATANY DLA RESZTY MASZYN ---
-                target_posnrs = op_to_posnr.get(op_side, ['0030', '0020', '0070'])
                 for posnr in target_posnrs:
                     side_req = requirements[requirements['POSNR'] == posnr]
-                    for _, bom_row in side_req.iterrows():
-                        idnrk = str(bom_row['IDNRK'])
-                        _, width = self._extract_width_and_type(idnrk)
-                        
+                    
+                    if side_req.empty:
+                        # BRAK FOLII DEKORACYJNEJ W BAZIE -> Wstrzykujemy powiadomienie o F99
                         report_data['production_sequence'].append({
-                            'idnrk': idnrk, 
-                            'width': width, 
+                            'idnrk': 'F99 (FOLIA KLIENTA)', 
+                            'width': 0, 
                             'meters': meters, 
                             'geometry': matnr, 
                             'order_index': order_idx,
                             'side_desc': posnr_desc.get(posnr, '')
                         })
+                    else:
+                        for _, bom_row in side_req.iterrows():
+                            idnrk = str(bom_row['IDNRK'])
+                            _, width = self._extract_width_and_type(idnrk)
+                            
+                            report_data['production_sequence'].append({
+                                'idnrk': idnrk, 
+                                'width': width, 
+                                'meters': meters, 
+                                'geometry': matnr, 
+                                'order_index': order_idx,
+                                'side_desc': posnr_desc.get(posnr, '')
+                            })
 
             prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
             for _, bom_row in prot_req.iterrows():
