@@ -2,6 +2,7 @@ from pathlib import Path
 
 # --- podstawowa ścieżka projektu (katalog "project") ---
 BASE_DIR = Path(__file__).resolve().parent.parent
+APP_ICON_PATH = BASE_DIR.parent / "assets" / "production_counter_icon.ico"
 
 # --- stała ścieżka do pliku konfiguracyjnego --- 
 CONFIG_PATH = BASE_DIR / "config" / "profile_config.csv"
