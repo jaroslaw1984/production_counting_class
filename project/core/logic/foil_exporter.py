@@ -149,9 +149,18 @@ class FoilExporter:
             # --- Wspólne ustalenie wymaganych pozycji na podstawie zleconej strony ---
             target_posnrs = op_to_posnr.get(op_side, ['0030', '0020', '0070'])
 
+            # Poza kombajnem wariant 0020 jest zapisany w BOM jako pojedyncza
+            # pozycja 0030, która reprezentuje całe okleinowanie obustronne.
+            # Nie szukamy dodatkowo 0020, bo jego brak generował fałszywe F99.
+            report_posnrs = (
+                ['0030']
+                if not is_double_sided_machine and op_side == '0020'
+                else target_posnrs
+            )
+
             if is_double_sided_machine:
                 # --- TRYB KOMBAJNU (Wszystko razem) ---
-                for side_pos in target_posnrs: 
+                for side_pos in report_posnrs:
                     side_req = requirements[requirements['POSNR'] == side_pos]
                     
                     if side_req.empty:
@@ -173,8 +182,13 @@ class FoilExporter:
                             })
             else:
                 # --- TRYB PRZEPLATANY DLA RESZTY MASZYN ---
-                for posnr in target_posnrs:
+                for posnr in report_posnrs:
                     side_req = requirements[requirements['POSNR'] == posnr]
+                    # Wariant HYDRA 0020 oznacza okleinowanie obustronne także wtedy,
+                    # gdy zlecenie trafi na maszynę spoza listy kombajnów. POSNR-y
+                    # nadal wskazują właściwe folie w BOM, ale opis w raporcie ma
+                    # dotyczyć całego wariantu, a nie pojedynczej strony.
+                    side_desc = 'Obustronne' if op_side == '0020' else posnr_desc.get(posnr, '')
                     
                     if side_req.empty:
                         # BRAK FOLII DEKORACYJNEJ W BAZIE -> Wstrzykujemy powiadomienie o F99
@@ -184,7 +198,7 @@ class FoilExporter:
                             'meters': meters, 
                             'geometry': matnr, 
                             'order_index': order_idx,
-                            'side_desc': posnr_desc.get(posnr, '')
+                            'side_desc': side_desc
                         })
                     else:
                         for _, bom_row in side_req.iterrows():
@@ -197,7 +211,7 @@ class FoilExporter:
                                 'meters': meters, 
                                 'geometry': matnr, 
                                 'order_index': order_idx,
-                                'side_desc': posnr_desc.get(posnr, '')
+                                'side_desc': side_desc
                             })
 
             prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
