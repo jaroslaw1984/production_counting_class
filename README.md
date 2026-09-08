@@ -2,6 +2,9 @@
 
 Production Calculation and Reporting System
 
+The main desktop interface is implemented with PySide6. The standalone
+deployment and updater utilities retain their existing GUI implementations.
+
 ## 📷 Screenshots
 
 ### Main Application Dashboard
