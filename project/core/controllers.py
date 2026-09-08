@@ -209,7 +209,7 @@ class MainController:
             exporter.process_export()
         else:
             # Użytkownik chce zmienić -> otwieramy nowy popup
-            from project.GUI.popups import ReportParamsPopup
+            from project.GUI.popups import FoilShiftPopup
             
             def on_shift_selected(new_day, new_shift):
                 # Callback wywoływany po kliknięciu "Generuj" wewnątrz popupu
@@ -221,8 +221,7 @@ class MainController:
                 exporter = FoilExporter(self.state, self.view)
                 exporter.process_export()
 
-            temp_popup_handler = ReportParamsPopup(self.view.root, machines=[], on_confirm=lambda: None)
-            temp_popup_handler.show_foil_shift_popup(on_shift_selected)
+            FoilShiftPopup(self.view.root, on_shift_selected)
     
     # --- Obsługa czyszczenia raportu ---
     def handle_clean_text(self):
@@ -234,6 +233,26 @@ class MainController:
     
     # --- Główna funkcja obsługująca generowanie raportu po wybraniu parametrów przez użytkownika ---        
     def on_report_params_selected(self, params: dict):
+            # Parametry są już zatwierdzone, więc pokazujemy osobne, widoczne
+            # okno pracy. Kolejny cykl GUI daje Qt czas na całkowite usunięcie
+            # poprzedniego modalnego popupu przed rozpoczęciem obliczeń.
+            self.view.show_progress_popup("Generowanie raportu...")
+            self.view.update_progress_popup(5, "Przygotowywanie danych...")
+            self._run_report_generation(params)
+
+    def _run_report_generation(self, params: dict):
+        try:
+            self._generate_report_from_params(params)
+        except Exception as e:
+            traceback.print_exc()
+            self.view.hide_progress_popup()
+            self.view.show_error("Błąd generowania raportu", str(e))
+        finally:
+            # Zamyka i zwalnia modalność również wtedy, gdy któraś z niższych
+            # gałęzi zakończy metodę przez return albo zgłosi wyjątek.
+            self.view.hide_progress_popup()
+
+    def _generate_report_from_params(self, params: dict):
             print(f"Kontroler otrzymał parametry od użytkownika: {params}")
             
             linia_value = params["linia"]
@@ -241,6 +260,7 @@ class MainController:
             day_value = params["day"]
             
             # --- 1. Cięcie Hydry (OBOWIĄZKOWE) ---
+            self.view.update_progress_popup(15, "Przygotowywanie planu produkcji...")
             try:
                 df_group = self._cut_from_order(self.state.df_hydra, start_order_id)
             except Exception as e:
@@ -265,6 +285,7 @@ class MainController:
             self.state.last_cut_plan_df = df_cut_plan
 
             # --- 3. Pobieranie SAP ---
+            self.view.update_progress_popup(45, "Pobieranie danych SAP...")
             try:
                 df_sap = fetch_sap_basic_profiles(linia=linia_value, day=day_value)
                 if df_sap is None or df_sap.empty:
@@ -274,12 +295,14 @@ class MainController:
                 return
 
             # --- 4. Uruchomienie silnika SmartPlanMatcher ---
+            self.view.update_progress_popup(70, "Dopasowywanie danych raportu...")
             try:
                 matcher = SmartPlanMatcher(df_group, df_cut_plan, df_sap)
                 wynik = matcher.run_matching()
                 
                 rows = wynik["rows"]
                 missing_articles = wynik["missing_articles"]
+                missing_ordered_materials = wynik.get("missing_ordered_materials", [])
                 
                 # ---------------------------------------
                 # DODANE: Pobranie dodatkowych danych z wyniku dopasowania (np. sap_user) i zapis do stanu
@@ -307,6 +330,7 @@ class MainController:
 
             # --- Przekazanie DANYCH do Widoku ---
             # Przekazujemy również sap_user, aby pokazał się w GUI!
+            self.view.update_progress_popup(95, "Wyświetlanie gotowego raportu...")
             self.view.render_sap_report_table(linia_value, day_value, rows, sap_user)
             
             # (Opcjonalnie) aktualizacja stanu
@@ -345,6 +369,23 @@ class MainController:
                 self.view.show_warning(
                     "Uwaga: braki strony 0022",
                     f"Wykryto konflikt: na liście artykułów brakuje strony wewnętrznej 0022.\n\nSzczegóły:\n{preview}"
+                )
+
+            # --- 7. Obsługa ostrzeżeń (materiał z planu niezamówiony w SAP) ---
+            if missing_ordered_materials:
+                preview_lines = [
+                    f"• {item['index']}: wymagane {float(item['required_m']):.1f} m"
+                    for item in missing_ordered_materials[:12]
+                ]
+                preview = "\n".join(preview_lines)
+                if len(missing_ordered_materials) > 12:
+                    preview += f"\n… i jeszcze {len(missing_ordered_materials) - 12} kolejnych."
+
+                self.view.show_warning(
+                    "Uwaga: brak materiałów w zamówieniu",
+                    "W aktywnej części planu znajdują się materiały, których nie znaleziono "
+                    "w zamówieniu SAP. Raport został wygenerowany, ale sprawdź zamówienie."
+                    f"\n\nSzczegóły:\n{preview}",
                 )
     
     # --- pomocniecze funkcje do obsługi raportu z pliku ---        

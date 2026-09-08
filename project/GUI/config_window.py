@@ -1,5 +1,5 @@
-import customtkinter as ctk
-from tkinter import messagebox
+from project.GUI import qt_compat as ctk
+from project.GUI.qt_compat import messagebox
 from project.core.config_manager import ConfigDataManager
 from project.config.count_per_loader import (
     fetch_workplace_config, add_workplace, update_workplace_full, delete_workplace
@@ -89,7 +89,9 @@ class ConfigWindow(ctk.CTkToplevel):
                 width=60, 
                 fg_color="#D32F2F", 
                 hover_color="#B71C1C",
-                command=lambda m=machine_name: self._delete_ds_machine(m)
+                # QPushButton.clicked przekazuje argument ``checked``. Musi on
+                # zostać jawnie przechwycony, aby nie nadpisał nazwy maszyny.
+                command=lambda _checked=False, m=machine_name: self._delete_ds_machine(m)
             )
             del_btn.pack(side="right", padx=10)
 
@@ -169,14 +171,14 @@ class ConfigWindow(ctk.CTkToplevel):
             del_btn = ctk.CTkButton(
                 row_frame, text="Usuń", width=60, 
                 fg_color="#D32F2F", hover_color="#B71C1C",
-                command=lambda wp=m['workplace']: self._delete_machine(wp)
+                command=lambda _checked=False, wp=m['workplace']: self._delete_machine(wp)
             )
             del_btn.pack(side="right", padx=(5, 10))
             
             edit_btn = ctk.CTkButton(
                 row_frame, text="Edytuj", width=60, 
                 fg_color="#1976D2", hover_color="#1565C0",
-                command=lambda data=m: self._edit_machine(data)
+                command=lambda _checked=False, data=m: self._edit_machine(data)
             )
             edit_btn.pack(side="right", padx=5)
 
@@ -311,14 +313,14 @@ class ConfigWindow(ctk.CTkToplevel):
             del_btn = ctk.CTkButton(
                 row_frame, text="Usuń", width=60, 
                 fg_color="#D32F2F", hover_color="#B71C1C",
-                command=lambda prof=p['profile'], side=p['side']: self._delete_profile(prof, side)
+                command=lambda _checked=False, prof=p['profile'], side=p['side']: self._delete_profile(prof, side)
             )
             del_btn.pack(side="right", padx=(5, 10))
             
             edit_btn = ctk.CTkButton(
                 row_frame, text="Edytuj", width=60, 
                 fg_color="#1976D2", hover_color="#1565C0",
-                command=lambda data=p: self._edit_profile(data)
+                command=lambda _checked=False, data=p: self._edit_profile(data)
             )
             edit_btn.pack(side="right", padx=5)
 

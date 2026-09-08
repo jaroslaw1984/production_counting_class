@@ -1,5 +1,5 @@
-import customtkinter as ctk
-import tkinter as tk
+from project.GUI import qt_compat as ctk
+from project.GUI import qt_compat as tk
 import pandas as pd 
 import sys
 import os
@@ -9,7 +9,7 @@ import threading
 from datetime import date, datetime
 from PIL import Image
 from pathlib import Path
-from tkinter import messagebox
+from project.GUI.qt_compat import messagebox
 from typing import Callable
 from project.config.version import (
     PROGRAM_NAME,
@@ -24,8 +24,9 @@ from project.config.paths import LATEST_JSON_PATH, HELP_SECTIONS_PATH, HELP_SECT
 
 def center_popup(parent, popup):
     try:
-        parent.update_idletasks()
-        popup.update_idletasks()
+        # Nie przetwarzamy tutaj zdarzeń Qt. CTkToplevel planuje pokazanie
+        # okna w następnym cyklu GUI, a update_idletasks() pokazywało je za
+        # wcześnie w pozycji domyślnej i dopiero potem przesuwało na środek.
         pw = popup.winfo_width()
         ph = popup.winfo_height()
         rw = parent.winfo_width()
@@ -216,6 +217,7 @@ class AboutPopup(ctk.CTkToplevel):
     def __init__(self, parent: ctk.CTk, discovered_version=None):
         super().__init__(parent)
         self.title("O programie")
+        self.geometry("635x363")
         self.resizable(False, False)
         self.grab_set()
         self.grid_columnconfigure(0, weight=1)
@@ -378,7 +380,8 @@ class AboutPopup(ctk.CTkToplevel):
                 # Zamiast dotykać GUI bezpośrednio, zlecamy to głównemu wątkowi okna przez .after(0, ...)
                 self.after(0, lambda: self._on_update_check_done(server_version, None))
             except Exception as e:
-                self.after(0, lambda: self._on_update_check_done(None, f"{type(e).__name__}: {e}"))
+                error = f"{type(e).__name__}: {e}"
+                self.after(0, lambda error=error: self._on_update_check_done(None, error))
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
@@ -423,8 +426,8 @@ class HelpWindow(ctk.CTkToplevel):
         # --- Stałe konfiguracyjne dla animacji ---
         self.HEADER_H = 64  
         self.SINGLE_OPEN = True
-        self.ANIM_MS = 120      
-        self.ANIM_STEPS = 8    
+        self.ANIM_MS = 0
+        self.ANIM_STEPS = 1
         
         # --- Uruchomienie budowy UI ---
         self._build_ui()
@@ -453,10 +456,10 @@ class HelpWindow(ctk.CTkToplevel):
         self.separator = ctk.CTkFrame(self, height=1)
         self.separator.pack(fill="x", padx=24, pady=(10, 14))        
         
-        # 2. Tutaj zbuduj główny kontener (ctk.CTkScrollableFrame) i przypisz go do self.scroll
+        # 2. Główny, przewijany kontener pomocy
         # --- scroll ---
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.pack(fill="both", expand=True, padx=18, pady=0)        
+        self.help_scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.help_scroll.pack(fill="both", expand=True, padx=18, pady=0)
 
         # 3. Wczytaj dane z pliku JSON (wykorzystaj self._load_help_sections)
         # sections = self._load_help_sections(HELP_SECTIONS_PATH)
@@ -504,7 +507,7 @@ class HelpWindow(ctk.CTkToplevel):
         """Generowanie pojedynczej rozwijanej karty"""
         # To jest najdłuższa część. Skopiuj tu logikę tworzenia "card", "header_row", "content".
         # Pamiętaj o przeniesieniu tu również zagnieżdżonych funkcji (render_body, toggle, close, open_)
-        card = ctk.CTkFrame(self.scroll, fg_color=("#ffffff", "#1f1f1f"), corner_radius=14)
+        card = ctk.CTkFrame(self.help_scroll, fg_color=("#ffffff", "#1f1f1f"), corner_radius=14)
         card.pack(fill="x", padx=6, pady=8)
 
         card.pack_propagate(True)   # <-- KLUCZ: karta ma się kurczyć do zawartości
@@ -522,9 +525,25 @@ class HelpWindow(ctk.CTkToplevel):
         header_row = ctk.CTkFrame(main, fg_color="transparent")
         header_row.pack(fill="x")
 
+        # Kolorowe emoji-kropki są przez Qt renderowane jako grafika i na
+        # Windows potrafią przeskoczyć do prawego górnego rogu oraz się uciąć.
+        # Zwykły znak koła w osobnej, wyśrodkowanej etykiecie jest stabilny.
+        icon_lbl = ctk.CTkLabel(
+            header_row,
+            text="●",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=color,
+            width=30,
+            height=32,
+            anchor="center",
+        )
+        icon_lbl.setFixedSize(30, 32)
+        icon_lbl.setAlignment(ctk.Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.pack(side="left", padx=(0, 8))
+
         title_lbl = ctk.CTkLabel(
             header_row,
-            text=f"{icon}  {title}",
+            text=title,
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=color,
             anchor="w",
@@ -539,6 +558,17 @@ class HelpWindow(ctk.CTkToplevel):
             width=20,
         )
         chev.pack(side="right")
+
+        # Tekst i strzałka są wizualną częścią nagłówka, ale kliknięcie ma
+        # obsługiwać cały header_row. Bez tego QLabel przechwytuje zdarzenie i
+        # sekcja rozwija się tylko po kliknięciu pustego fragmentu nagłówka.
+        for header_label in (icon_lbl, title_lbl, chev):
+            header_label.setAttribute(ctk.Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            if header_label._layout_wrapper is not None:
+                header_label._layout_wrapper.setAttribute(
+                    ctk.Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+                )
+        header_row.setCursor(ctk.Qt.CursorShape.PointingHandCursor)
 
         # CONTENT (zwijany)
         content = ctk.CTkFrame(main, fg_color="transparent")
@@ -584,22 +614,26 @@ class HelpWindow(ctk.CTkToplevel):
                         ctk_img = ctk.CTkImage(img, size=size)
 
                         img_lbl = ctk.CTkLabel(content, image=ctk_img, text="")
-                        img_lbl.pack(pady=(10, 0), anchor="w")
+                        img_lbl.setAlignment(ctk.Qt.AlignmentFlag.AlignCenter)
+                        img_lbl.pack(pady=(10, 0), anchor="center")
 
                         # ✅ ważne: zachowaj referencję
                         content._images.append(ctk_img)  # type: ignore[attr-defined]
 
-        # wypełnij content
-        render_body(content, body)
+        # Treść (zwłaszcza obrazy) jest budowana dopiero przy pierwszym
+        # rozwinięciu sekcji. Dzięki temu samo otwarcie Pomocy jest szybkie.
+        content._body_rendered = False  # type: ignore[attr-defined]
 
         # funkcja licząca docelową wysokość karty po rozwinięciu (ważne dla animacji)
         def calc_open_height():
             # chwilowo pokaż content, żeby policzyć reqheight
             content.pack(fill="x")
-            self.update_idletasks()
-
-            # ile potrzeba na treść
-            content_h = content.winfo_reqheight()
+            layout = content.layout()
+            if layout is not None:
+                layout.invalidate()
+                content_h = layout.sizeHint().height()
+            else:
+                content_h = content.sizeHint().height()
 
             # odejmij/ dodaj oddechy – dopasuj pod swój gust
             extra = 32  # paddingi karty + nagłówek itp.
@@ -642,6 +676,10 @@ class HelpWindow(ctk.CTkToplevel):
 
         # funkcja otwierająca sekcję (rozwijająca i pokazująca content, a jeśli SINGLE_OPEN=True, to też zamykająca poprzednią otwartą)
         def open_():
+            if not content._body_rendered:  # type: ignore[attr-defined]
+                render_body(content, body)
+                content._body_rendered = True  # type: ignore[attr-defined]
+
             # zamknij poprzednią (single-open)
             if self.SINGLE_OPEN and self.opened_content is not None and self.opened_content is not content:
                 try:
@@ -706,8 +744,7 @@ class HelpWindow(ctk.CTkToplevel):
                 # klik na inną → otwórz i zamknij poprzednią
                 open_()                    
 
-        for w in (header_row, title_lbl, chev):
-            w.bind("<Button-1>", lambda _e: toggle())
+        header_row.bind("<Button-1>", lambda _e: toggle())
 
         if initially_open:
             open_()
@@ -715,79 +752,26 @@ class HelpWindow(ctk.CTkToplevel):
             close()
 
     def _animate_height(self, widget, h_from, h_to, on_done=None, lock_to=None):
-        """Funkcja wykonująca płynną animację"""
-        # zabezpieczenie na klik spam
-        if getattr(widget, "_animating", False):
-            return
-        widget._animating = True
-
-        dh = (h_to - h_from) / self.ANIM_STEPS
-        i = 0
-
-        def step():
-            nonlocal i
-            i += 1
-            h = int(h_from + dh * i)
-
-            try:
-                widget.configure(height=h)
-                self._refresh_scrollregion()
-                if lock_to is not None:
-                    self._scroll_to_widget(lock_to, pad=12)  # trzyma nagłówek w miejscu
-            except Exception:
-                pass
-
-            if i < self.ANIM_STEPS:
-                widget.after(max(1, self.ANIM_MS // self.ANIM_STEPS), step)
-            else:
-                try:
-                    widget.configure(height=h_to)
-                    self._refresh_scrollregion()
-                    if lock_to is not None:
-                        self._scroll_to_widget(lock_to, pad=12)
-                except Exception:
-                    pass
-                widget._animating = False
-                if on_done:
-                    on_done()
-        step()
+        """Natychmiast zmienia wysokość sekcji bez kosztownej animacji."""
+        widget.configure(height=h_to)
+        widget._animating = False
+        self._refresh_scrollregion()
+        if lock_to is not None:
+            self._scroll_to_widget(lock_to, pad=12)
+        if on_done:
+            on_done()
 
     def _scroll_to_widget(self, w, pad=10):
-        """Przewijanie paska do otwartego widgetu"""
+        """Przewijanie paska do otwartego widgetu."""
         try:
-            self.update_idletasks()
-            self.scroll.update_idletasks() # <-- Dodano odświeżanie scrolla
-
-            canvas = getattr(self, "_parent_canvas", None) or getattr(self, "_canvas", None)
-            if canvas is None:
-                return
-
-            self._refresh_scrollregion()
-            self.update_idletasks()
-            self.scroll.update_idletasks() # <-- Dodano odświeżanie scrolla
-
-            bbox = canvas.bbox("all")
-            if not bbox:
-                return
-
-            scroll_h = max(1, bbox[3] - bbox[1])
-
-            # ✅ stabilne: pozycja widgetu w jednostkach canvas
-            y = (w.winfo_rooty() - canvas.winfo_rooty()) + canvas.canvasy(0)
-            y = max(0, int(y) - pad)
-
-            canvas.yview_moveto(min(1.0, y / scroll_h))
+            self.help_scroll.scroll_to_widget(w)
         except Exception:
             pass 
 
     def _refresh_scrollregion(self):
-        try:
-            self.update_idletasks()
-            canvas = getattr(self.scroll, "_parent_canvas", None) or getattr(self, "_canvas", None)
-            if canvas is not None:
-                canvas.configure(scrollregion=canvas.bbox("all"))
-        except Exception:
-            pass 
+        # QScrollArea aktualizuje zakres automatycznie po zmianie geometrii.
+        # Wymuszanie layout.activate() dla kart z wieloma obrazami blokowało GUI.
+        self.help_scroll._content.updateGeometry()
 
     def _apply_help_theme(self):
         """Zmiana kolorów zaleznie od trybu (Jasny/Ciemny)"""
@@ -824,6 +808,7 @@ class ReportParamsPopup(ctk.CTkToplevel):
     def __init__(self, parent, machines: list[str], on_confirm):
         super().__init__(parent)
         self.title("Parametry raportu")
+        self.geometry("483x232")
         self.resizable(False, False)
         self.grab_set()
         center_popup(parent, self)
@@ -842,7 +827,7 @@ class ReportParamsPopup(ctk.CTkToplevel):
 
         ctk.CTkLabel(self, text="Startowe zlecenie nowej grupy:").pack(anchor="w", padx=12, pady=(0, 4))
         
-        vcmd = self.register(self._only_digits)
+        vcmd = self._only_digits
 
         self.start_var = tk.StringVar(value="")
         self.start_entry = ctk.CTkEntry(
@@ -853,7 +838,7 @@ class ReportParamsPopup(ctk.CTkToplevel):
             validatecommand=(vcmd, "%P")
         )
         self.start_entry.pack(anchor="w", padx=12, pady=(0, 12))
-        self.start_entry.focus_set() 
+        self.start_entry.setFocus()
                
         # --- Dzień danych (SAP/DB) ---
         self.day_mode_var = tk.StringVar(value="today")  # today | date
@@ -906,27 +891,30 @@ class ReportParamsPopup(ctk.CTkToplevel):
 
         result = {"linia": linia, "start_order_id": start_order_id, "day": day_value}            
 
-        self.on_confirm(result)
+        # Najpierw zamykamy modalne okno parametrów. Callback może wykonywać
+        # długie operacje i otwierać kolejne popupy, więc nie może działać pod
+        # nadal aktywną blokadą tego dialogu.
+        on_confirm = self.on_confirm
+        self.grab_release()
         self.destroy()
+        self.after(0, lambda: on_confirm(result))
     
     def _only_digits(self, new_value: str) -> bool:
         # pozwalamy na pusty (user jeszcze pisze)
         return new_value.isdigit() or new_value == ""
     
-    # --- Popup dla przycisku 'Zmiana terminu folii' ---
-    def show_foil_shift_popup(self, callback):
-        """
-        Popup wyświetlany przed eksportem folii, jeśli użytkownik odrzuci termin ze snapshota.
-        Przyjmuje funkcję 'callback', która uruchamia się z wybranym dniem i zmianą.
-        """
-        popup = ctk.CTkToplevel(self)
-        popup.title("Zmiana terminu folii")
-        popup.geometry("320x220")
-        popup.grab_set()
-        popup.attributes("-topmost", True)
+class FoilShiftPopup(ctk.CTkToplevel):
+    """Wybór nowego terminu, gdy użytkownik odrzuci termin ze snapshota."""
+
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+        self.title("Zmiana terminu folii")
+        self.geometry("320x220")
+        self.grab_set()
+        self.attributes("-topmost", True)
 
         ctk.CTkLabel(
-            popup, 
+            self,
             text="Wybierz termin dokładki:", 
             font=("Arial", 14, "bold")
         ).pack(pady=(15, 10))
@@ -934,36 +922,42 @@ class ReportParamsPopup(ctk.CTkToplevel):
         # Dropdown - Dzień tygodnia
         days = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
         day_var = ctk.StringVar(value="poniedziałek")
-        day_cb = ctk.CTkComboBox(popup, values=days, variable=day_var, state="readonly", width=180)
-        day_cb.pack(pady=5)
+        day_cb = ctk.CTkComboBox(self, values=days, variable=day_var, state="readonly", width=180)
+        day_cb.setFixedWidth(180)
+        day_cb.pack(padx=20, pady=5, anchor="center")
 
         # Dropdown - Zmiana
         shifts = ["1", "2", "3"]
         shift_var = ctk.StringVar(value="1")
-        shift_cb = ctk.CTkComboBox(popup, values=shifts, variable=shift_var, state="readonly", width=180)
-        shift_cb.pack(pady=5)
+        shift_cb = ctk.CTkComboBox(self, values=shifts, variable=shift_var, state="readonly", width=180)
+        shift_cb.setFixedWidth(180)
+        shift_cb.pack(padx=20, pady=5, anchor="center")
 
         def apply_changes():
             new_day = day_var.get()
             new_shift = shift_var.get()
-            popup.destroy()
+            self.grab_release()
+            self.destroy()
             # Wysyłamy wybrane dane z powrotem do controllers.py
             if callback:
                 callback(new_day, new_shift)
 
         save_btn = ctk.CTkButton(
-            popup, 
+            self,
             text="Zmień termin", 
-            command=apply_changes, 
+            command=apply_changes,
+            width=160,
         )
-        save_btn.pack(pady=(20, 0))   
-        center_popup(self, popup)    
+        save_btn.setFixedWidth(160)
+        save_btn.pack(padx=20, pady=(20, 0), anchor="center")
+        center_popup(parent, self)
 
 # --- Klasa okienka popup do ustawiania harmonogramu startu liczenia grupy (zmiana, tryb startu, data startu) ---    
 class SchedulePopup(ctk.CTkToplevel):
     def __init__(self, parent, on_confirm):
         super().__init__(parent)
         self.title("Parametry liczenia grupy - harmonogram")
+        self.geometry("520x212")
         self.resizable(False, False)
         self.grab_set()
         
@@ -983,27 +977,37 @@ class SchedulePopup(ctk.CTkToplevel):
         shift_frame = ctk.CTkFrame(self, fg_color="transparent")
         shift_frame.pack(fill="x", padx=20, pady=(20, 10))
         
-        ctk.CTkLabel(shift_frame, text="Start od zmiany:", width=120, anchor="w").pack(side="left")
-        ctk.CTkRadioButton(shift_frame, text="1", variable=self.shift_var, value=1).pack(side="left", padx=10)
-        ctk.CTkRadioButton(shift_frame, text="2", variable=self.shift_var, value=2).pack(side="left", padx=10)
-        ctk.CTkRadioButton(shift_frame, text="3", variable=self.shift_var, value=3).pack(side="left", padx=10)
+        ctk.CTkLabel(shift_frame, text="Start od zmiany:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        for column, value in enumerate((1, 2, 3), start=1):
+            ctk.CTkRadioButton(
+                shift_frame, text=str(value), variable=self.shift_var,
+                value=value, width=70,
+            ).grid(row=0, column=column, sticky="w")
         
         # --- WIERSZ 2: Tryb startu (dziś/data) ---
         mode_frame = ctk.CTkFrame(self, fg_color="transparent")
         mode_frame.pack(fill="x", padx=20, pady=10)
         
-        ctk.CTkLabel(mode_frame, text="Start liczenia:", width=120, anchor="w").pack(side="left")
-        ctk.CTkRadioButton(mode_frame, text="od dziś", variable=self.start_mode_var, value="today").pack(side="left", padx=10)
-        ctk.CTkRadioButton(mode_frame, text="od daty", variable=self.start_mode_var, value="date").pack(side="left", padx=10)
+        ctk.CTkLabel(mode_frame, text="Start liczenia:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkRadioButton(
+            mode_frame, text="od dziś", variable=self.start_mode_var,
+            value="today", width=110,
+        ).grid(row=0, column=1, sticky="w")
+        ctk.CTkRadioButton(
+            mode_frame, text="od daty", variable=self.start_mode_var,
+            value="date", width=110,
+        ).grid(row=0, column=2, sticky="w")
         
         # --- WIERSZ 3: Pole daty ---
         date_frame = ctk.CTkFrame(self, fg_color="transparent")
         date_frame.pack(fill="x", padx=20, pady=10)
         
-        ctk.CTkLabel(date_frame, text="Podaj datę:", width=120, anchor="w").pack(side="left")
+        ctk.CTkLabel(date_frame, text="Podaj datę:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
         self.date_entry = ctk.CTkEntry(date_frame, width=140, textvariable=self.start_day_var)
-        self.date_entry.pack(side="left", padx=10)
-        ctk.CTkLabel(date_frame, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left")
+        self.date_entry.grid(row=0, column=1, sticky="w")
+        ctk.CTkLabel(
+            date_frame, text="(YYYY-MM-DD)", text_color="#aaaaaa", anchor="w",
+        ).grid(row=0, column=2, sticky="w", padx=(10, 0))
         
         # --- WIERSZ 4: Przyciski ---
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -1040,6 +1044,7 @@ class OrderIdPopup(ctk.CTkToplevel):
     def __init__(self, parent, on_confirm):
         super().__init__(parent)
         self.title("Potwierdź termin zlecenia")
+        self.geometry("344x124")
         self.resizable(False, False)
         self.grab_set()
         self.on_confirm = on_confirm
@@ -1050,11 +1055,11 @@ class OrderIdPopup(ctk.CTkToplevel):
     def _build_ui(self):
         ctk.CTkLabel(self, text="Znajdź zlecenie aby sprawdzić datę zakończenia:").pack(padx=12, pady=(12, 6))
         
-        vcmd = (self.register(self._only_digits), "%P")        
+        vcmd = (self._only_digits, "%P")
         self.v = tk.StringVar(value="")
         entry = ctk.CTkEntry(self, textvariable=self.v, width=320, validate="key", validatecommand=vcmd)
         entry.pack(padx=12, pady=(0, 10))
-        entry.focus_set()
+        entry.setFocus()
 
         btns = ctk.CTkFrame(self, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -1080,6 +1085,8 @@ class CalcModePopup(ctk.CTkToplevel):
     def __init__(self, parent, workplace: str, default_speed: float, default_pieces_per_shift: int, on_confirm):
         super().__init__(parent)
         self.title("Parametry przeliczenia produkcji")
+        self.geometry("607x354")
+        self.resizable(False, False)
         self.grab_set()
         self.on_confirm = on_confirm
         
@@ -1102,50 +1109,69 @@ class CalcModePopup(ctk.CTkToplevel):
         frame = ctk.CTkFrame(self)
         frame.pack(fill="both", expand=True, padx=16, pady=10)
 
-        row1 = ctk.CTkFrame(frame)
-        row1.pack(fill="x", padx=10, pady=(10, 6))
-        
-        row2 = ctk.CTkFrame(frame)
-        row2.pack(fill="x", padx=10, pady=6)
-                
-        spacer = ctk.CTkFrame(frame, height=12, fg_color="transparent")
+        # Dwie pierwsze linie korzystają z tej samej siatki, dzięki czemu pola
+        # wartości zaczynają się w identycznym miejscu.
+        row_speed = ctk.CTkFrame(frame)
+        row_speed.pack(fill="x", padx=10, pady=(10, 6))
+        row_shift_mode = ctk.CTkFrame(frame)
+        row_shift_mode.pack(fill="x", padx=10, pady=6)
+
+        self.speed_var = tk.StringVar(value=str(self.default_speed))
+        self.pshift_var = tk.StringVar(value=str(self.default_pieces_per_shift))
+
+        ctk.CTkRadioButton(
+            row_speed, text="Przelicz przez prędkość (m/min):",
+            variable=self.mode_var, value="speed", width=300,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkEntry(row_speed, width=120, textvariable=self.speed_var).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        ctk.CTkRadioButton(
+            row_shift_mode, text="Przelicz przez szt./zmianę:",
+            variable=self.mode_var, value="shift", width=300,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkEntry(row_shift_mode, width=120, textvariable=self.pshift_var).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        spacer = ctk.CTkFrame(frame, height=8, fg_color="transparent")
         spacer.pack(fill="x")
 
         row_cal = ctk.CTkFrame(frame)
-        row_cal.pack(fill="x", padx=10, pady=(20, 6))
-        
+        row_cal.pack(fill="x", padx=10, pady=(8, 6))
+        ctk.CTkLabel(row_cal, text="Kalendarz:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkRadioButton(
+            row_cal, text="dni robocze", variable=self.calendar_var,
+            value="workdays", width=140,
+        ).grid(row=0, column=1, sticky="w")
+        ctk.CTkRadioButton(
+            row_cal, text="dni robocze + weekendy", variable=self.calendar_var,
+            value="all", width=230,
+        ).grid(row=0, column=2, sticky="w")
+
         row_start = ctk.CTkFrame(frame)
         row_start.pack(fill="x", padx=10, pady=6)
-        
+        ctk.CTkLabel(row_start, text="Start od zmiany:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        for column, val in enumerate((1, 2, 3), start=1):
+            ctk.CTkRadioButton(
+                row_start, text=str(val), variable=self.start_shift_var,
+                value=val, width=70,
+            ).grid(row=0, column=column, sticky="w")
+
         row_startdate = ctk.CTkFrame(frame)
         row_startdate.pack(fill="x", padx=10, pady=6)
-        
-        # --- Start daty ---
-        ctk.CTkLabel(row_startdate, text="Start liczenia:").pack(side="left")
-        ctk.CTkRadioButton(row_startdate, text="od dziś", variable=self.start_mode_var, value="today").pack(side="left", padx=10)
-        ctk.CTkRadioButton(row_startdate, text="od daty", variable=self.start_mode_var, value="date").pack(side="left", padx=10)
-        
+        ctk.CTkLabel(row_startdate, text="Start liczenia:", width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkRadioButton(
+            row_startdate, text="od dziś", variable=self.start_mode_var,
+            value="today", width=90,
+        ).grid(row=0, column=1, sticky="w")
+        ctk.CTkRadioButton(
+            row_startdate, text="od daty", variable=self.start_mode_var,
+            value="date", width=90,
+        ).grid(row=0, column=2, sticky="w")
+
         self.date_entry = ctk.CTkEntry(row_startdate, width=130, textvariable=self.start_date_var)
-        self.date_entry.pack(side="left", padx=10)
-        ctk.CTkLabel(row_startdate, text="(YYYY-MM-DD)", text_color="#aaaaaa").pack(side="left")        
-        
-        # --- Tryby ---
-        ctk.CTkRadioButton(row2, text="Przelicz przez szt./zmianę:", variable=self.mode_var, value="shift").pack(side="left")
-        self.pshift_var = tk.StringVar(value=str(self.default_pieces_per_shift))
-        ctk.CTkEntry(row2, width=120, textvariable=self.pshift_var).pack(side="left", padx=10)
-        
-        ctk.CTkRadioButton(row1, text="Przelicz przez prędkość (m/min):", variable=self.mode_var, value="speed").pack(side="left")
-        self.speed_var = tk.StringVar(value=str(self.default_speed))
-        ctk.CTkEntry(row1, width=120, textvariable=self.speed_var).pack(side="left", padx=10)
-
-        # --- Zmiana i Kalendarz ---
-        ctk.CTkLabel(row_start, text="Start od zmiany:").pack(side="left")
-        for val in [1, 2, 3]:
-            ctk.CTkRadioButton(row_start, text=str(val), variable=self.start_shift_var, value=val).pack(side="left", padx=10)
-
-        ctk.CTkLabel(row_cal, text="Kalendarz:").pack(side="left")
-        ctk.CTkRadioButton(row_cal, text="dni robocze", variable=self.calendar_var, value="workdays").pack(side="left", padx=10)
-        ctk.CTkRadioButton(row_cal, text="dni robocze + weekendy", variable=self.calendar_var, value="all").pack(side="left", padx=10)
+        self.date_entry.grid(row=0, column=3, sticky="w", padx=(4, 6))
+        ctk.CTkLabel(
+            row_startdate, text="(YYYY-MM-DD)", text_color="#aaaaaa", anchor="w",
+        ).grid(row=0, column=4, sticky="w")
         
         btns = ctk.CTkFrame(self, fg_color="transparent")
         btns.pack(fill="x", padx=16, pady=14)
@@ -1213,42 +1239,36 @@ class ProgressPopup(ctk.CTkToplevel):
     
     # -- Metoda do pokazania komunikatu po zakończeniu i przycisku OK --
     def show_completion(self, message: str, on_ok_callback: Callable):
-        """Wybiera między czystą etykietą a polem tekstowym w zależności od treści."""
+        """Pokazuje końcowy komunikat jako wyśrodkowany, zwykły tekst."""
         self.progress_bar.pack_forget()
-        
-        # Sprawdzamy, czy wiadomość zawiera znaki nowej linii (np. listę braków)
-        if "\n" in message:
-            # TRYB RAPORTU: Chowamy małą etykietę i wstawiamy pole tekstowe z suwakiem
-            self.progress_label.pack_forget()
-            
-            lines = message.count('\n')
-            # Dynamiczna wysokość okna dla raportu
-            calculated_height = max(200, min(450, 120 + lines * 20))
-            self.geometry(f"520x{calculated_height}")
-            
-            textbox = ctk.CTkTextbox(self, wrap="word", font=("Arial", 12))
-            textbox.pack(padx=20, pady=(10, 10), fill="both", expand=True)
-            textbox.insert("0.0", message)
-            textbox.configure(state="disabled")
-        else:
-            # TRYB SUKCESU: wygląd skrócony, wycentrowany
-            self.geometry("450x160")
-            self.progress_label.configure(
-                text=message, 
-                anchor="center", 
-                justify="center",
-                font=("Arial", 13, "bold")
-            )
-            # Upewniamy się, że etykieta jest dobrze wypozycjonowana
-            self.progress_label.pack(pady=25, padx=20, fill="x")
+
+        lines = message.count("\n") + 1
+        calculated_height = max(160, min(450, 120 + lines * 20))
+        self.geometry(f"520x{calculated_height}")
+        # Etykieta postępu powstała z wyrównaniem do lewej. Osobna etykieta
+        # końcowa gwarantuje wyśrodkowanie także na poziomie układu widżetu.
+        self.progress_label.pack_forget()
+        completion_label = ctk.CTkLabel(
+            self,
+            text=message,
+            anchor="center",
+            justify="center",
+            font=("Arial", 13, "bold"),
+            width=480,
+        )
+        completion_label.setFixedWidth(480)
+        completion_label.setAlignment(ctk.Qt.AlignmentFlag.AlignCenter)
+        completion_label.setWordWrap(False)
+        completion_label.pack(pady=25, padx=20, anchor="center", expand=True)
 
         # Przycisk OK na samym dole
         if self.ok_button is None or not self.ok_button.winfo_exists():
+            button_width = self.winfo_width() // 2
             self.ok_button = ctk.CTkButton(
                 self,
                 text="OK",
-                width=120,
+                width=button_width,
                 command=on_ok_callback
             )
-            self.ok_button.pack(pady=(0, 20))
-            
+            self.ok_button.setFixedWidth(button_width)
+            self.ok_button.pack(pady=(0, 20), anchor="center")

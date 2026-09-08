@@ -20,6 +20,7 @@ class SmartPlanMatcher:
         self.sap_rows_by_index = {}
         self.allocated_items = {}
         self.missing_0022_articles = []
+        self.missing_ordered_materials = []
         
         self.sap_user = ""
         self.sap_date = ""
@@ -41,8 +42,11 @@ class SmartPlanMatcher:
                 
             # 4. Przygotowanie danych z SAP
             self._prepare_sap_data()
-                
-            # 5. Główna alokacja / Dobieranie pozycji (SAP -> Hydra)
+
+            # 5. Walidacja materiałów wymaganych przez plan względem zamówienia SAP
+            self._validate_plan_materials_against_sap()
+
+            # 6. Główna alokacja / Dobieranie pozycji (SAP -> Hydra)
             lines, rows = self._allocate_sap_items()
             
             # Zwracamy czysty wynik do Kontrolera
@@ -51,6 +55,7 @@ class SmartPlanMatcher:
                 "lines": lines,
                 "rows": rows,
                 "missing_articles": self.missing_0022_articles,
+                "missing_ordered_materials": self.missing_ordered_materials,
                 "sap_user": self.sap_user,
                 "sap_date": self.sap_date  
             }
@@ -218,6 +223,43 @@ class SmartPlanMatcher:
             out[i] = float(m)
 
         self.required_by_block = out
+
+    def _validate_plan_materials_against_sap(self) -> None:
+        """
+        Wykrywa materiały wymagane przez aktywną część planu, których nie ma
+        w zamówieniu SAP. Walidacja jest informacyjna i nie wpływa na alokację.
+        """
+        if not self.use_smart_matching or not self.required_by_block:
+            return
+
+        sap_indices = {
+            str(index).strip().upper()
+            for index in self.sap_rows_by_index
+            if str(index).strip()
+        }
+        missing_required_m: dict[str, float] = defaultdict(float)
+        display_index_by_normalized: dict[str, str] = {}
+
+        for block_no, block in enumerate(self.blocks):
+            required_m = float(self.required_by_block.get(block_no, 0.0) or 0.0)
+            if required_m <= 0:
+                continue
+
+            display_index = str(block.get("gp", "")).strip()
+            normalized_index = display_index.upper()
+            if not normalized_index or normalized_index in sap_indices:
+                continue
+
+            display_index_by_normalized.setdefault(normalized_index, display_index)
+            missing_required_m[normalized_index] += required_m
+
+        self.missing_ordered_materials = [
+            {
+                "index": display_index_by_normalized[index],
+                "required_m": required_m,
+            }
+            for index, required_m in missing_required_m.items()
+        ]
 
     def _prepare_sap_data(self) -> None:
         """

@@ -1,7 +1,8 @@
-import customtkinter as ctk
+from project.GUI import qt_compat as ctk
+from PySide6.QtGui import QIcon
 import json
 from pathlib import Path
-from tkinter import messagebox, filedialog
+from project.GUI.qt_compat import messagebox, filedialog
 from project.GUI.ui_texts import ASCII_LOGO, HOME_SUBTITLE, HOME_DESC, HOME_VERSION
 from project.core.app_state import AppState
 from project.GUI.popups import (MachineSelectPopup, AboutPopup, HelpWindow, SchedulePopup, 
@@ -9,7 +10,7 @@ from project.GUI.popups import (MachineSelectPopup, AboutPopup, HelpWindow, Sche
 from project.config.version import PROGRAM_NAME, PROGRAM_VERSION
 from project.GUI.config_window import ConfigWindow
 from project.core.config_manager import ConfigDataManager
-from project.config.paths import DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFIG_PATH, LATEST_JSON_PATH
+from project.config.paths import APP_ICON_PATH, DOUBLE_SIDED_MACHINES_PATH, MACHINE_CONFIG_PATH, CONFIG_PATH, LATEST_JSON_PATH
 
 class MainWindow:
     def __init__(self, state: AppState):
@@ -17,6 +18,9 @@ class MainWindow:
         
         # Inicjalizacja atrybutu paska postępu
         self.progress_popup: ProgressPopup | None = None
+        # Qt wymaga utrzymywania referencji do niemodalnych okien potomnych.
+        self.help_window: HelpWindow | None = None
+        self.about_window: AboutPopup | None = None
         
         # --- Konfiguracja wyglądu ---
         ctk.set_appearance_mode("Dark")
@@ -25,6 +29,7 @@ class MainWindow:
         # --- Root window ---
         self.root = ctk.CTk()
         self.root.title(PROGRAM_NAME)
+        self.root.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.root.geometry("840x640")
         
         # Flaga, by nie spamować okienkiem aktualizacji przy każdym odświeżeniu danych
@@ -134,8 +139,17 @@ class MainWindow:
         )
         
         self.export_foil_btn = ctk.CTkButton(
-            self.action_frame, text="Wyślij zapotrzebowanie na folię", command=self.export_foil_report, width=140, height=35
+            self.action_frame, text="Wyślij zapotrzebowanie na folię", command=self.export_foil_report, width=240, height=35
         )
+
+        # Pasek ma jeden stały układ. Kolejne rodzaje raportów zmieniają tylko
+        # widoczność przycisków, dzięki czemu wyrównanie do prawej nie zależy
+        # od kolejności wcześniejszych widoków.
+        self.print_btn.pack(side="right")
+        self.edit_btn.pack(side="right", padx=(0, 10))
+        self.export_foil_btn.pack(side="right", padx=(0, 10))
+        self.edit_btn.pack_forget()
+        self.export_foil_btn.pack_forget()
         
         self._build_welcome_screen()
         
@@ -153,7 +167,8 @@ class MainWindow:
             text=ASCII_LOGO,
             justify="center",
             text_color=("#2980b9", "#85c1e9"), # Głęboki fiolet / Jasny, pastelowy fiolet
-            font=ctk.CTkFont(family="Courier New", size=10, weight="bold")
+            font=ctk.CTkFont(family="Courier New", size=10, weight="bold"),
+            height=104,
         )
         self.placeholder_logo.pack(pady=(30, 15), padx=40)
 
@@ -198,19 +213,16 @@ class MainWindow:
             # --- pokazujemy lub chowamy cały dolny pasek akcji ---
             if visible:
                 self.action_frame.grid()
-                
-                # Najpierw bezwzględnie czyścimy układ, żeby zapobiec nakładaniu się przycisków (bug z CustomTkinter)
-                self.print_btn.pack_forget()
-                self.edit_btn.pack_forget()
-                self.export_foil_btn.pack_forget()
-                
-                # Pakujemy od prawej do lewej: najpierw "Drukuj" na sam prawy skraj
-                self.print_btn.pack(side="right")
-                
-                # Jeśli to raport SAP, dokładamy "Edytuj" na lewo od przycisku drukowania (z małym odstępem)
+                self.print_btn.pack()
+
+                # Dodatkowe akcje raportu SAP zajmują stałe miejsca na lewo
+                # od przycisku drukowania.
                 if self.state.last_report_kind == "sap":
-                    self.edit_btn.pack(side="right", padx=(0, 10))
-                    self.export_foil_btn.pack(side="right", padx=(0, 10))
+                    self.edit_btn.pack()
+                    self.export_foil_btn.pack()
+                else:
+                    self.edit_btn.pack_forget()
+                    self.export_foil_btn.pack_forget()
             else:
                 self.action_frame.grid_remove()
 
@@ -233,6 +245,11 @@ class MainWindow:
         self.theme_button.configure(text=self._get_theme_button_text())
                
     def _configure_layout(self):    
+        # Poprzedni interfejs utrzymywał domyślną szerokość przycisków 140 px,
+        # a z marginesami dawało to panel boczny o szerokości ok. 164 px.
+        # W Qt rezerwujemy tę kolumnę jawnie, aby szeroka zawartość raportu
+        # nigdy nie wypchnęła panelu poza okno.
+        self.root.grid_columnconfigure(0, weight=0, minsize=164)
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
@@ -275,7 +292,7 @@ class MainWindow:
         self.show_welcome_screen()
 
     def _cleanup_table(self):
-        """Pancerne usuwanie widoków raportów bez bugów CustomTkinter."""
+        """Bezpiecznie usuwa aktualny widok raportu."""
         if hasattr(self, "table_frame") and self.table_frame is not None:
             try:
                 # UWAGA: Celowo nie używamy tu grid_forget(), bo generuje 
@@ -297,10 +314,22 @@ class MainWindow:
         ConfigWindow(self.root, data_manager)
         
     def help_btn(self):
-        HelpWindow(self.root)
+        if self.help_window is not None and self.help_window.winfo_exists():
+            self.help_window.lift()
+            self.help_window.focus_force()
+            return
+        window = HelpWindow(self.root)
+        self.help_window = window
+        window.destroyed.connect(lambda _obj=None: setattr(self, "help_window", None))
         
     def about_btn(self):
-        AboutPopup(self.root)
+        if self.about_window is not None and self.about_window.winfo_exists():
+            self.about_window.lift()
+            self.about_window.focus_force()
+            return
+        window = AboutPopup(self.root)
+        self.about_window = window
+        window.destroyed.connect(lambda _obj=None: setattr(self, "about_window", None))
 
     def run(self):
         self.root.mainloop()
@@ -419,7 +448,7 @@ class MainWindow:
         SchedulePopup(self.root, on_confirm)
            
     def render_sap_report_table(self, linia: str, day: str, rows: list[dict], user: str = ""):
-        """Renderuje profesjonalną tabelę raportu SAP przy użyciu natywnych widżetów CustomTkinter."""
+        """Renderuje tabelę raportu SAP przy użyciu widżetów PySide6."""
         # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu bazy danych) ---
         
         self._cleanup_table()
@@ -517,7 +546,7 @@ class MainWindow:
     def render_db_report_cards(self, report_text: str):
         """Renderuje eleganckie karty dla raportu z bazy danych (Wczytaj maszyny)."""
         # --- Najpierw czyścimy poprzednią tabelę, jeśli istniała (np. z raportu SAP) ---
-        # 1. Bezpiecznie usuwamy poprzednie widoki raportów, aby uniknąć błędów z CustomTkinter
+        # 1. Bezpiecznie usuwamy poprzednie widoki raportów.
         self._cleanup_table()
         self.hide_welcome_screen()
 
@@ -680,7 +709,7 @@ class MainWindow:
     def show_progress_popup(self, title: str):
         """Tworzy i wyświetla nowe okno z paskiem postępu z pliku popups.py."""
         if self.progress_popup is not None and self.progress_popup.winfo_exists():
-            self.progress_popup.destroy()
+            self.hide_progress_popup()
         self.progress_popup = ProgressPopup(self.root, title)
 
     def update_progress_popup(self, percentage: int, message: str):
@@ -699,6 +728,12 @@ class MainWindow:
             self.progress_popup.grab_release()
             self.progress_popup.destroy()
         self.progress_popup = None
+        # deleteLater() i zmiana modalności są realizowane przez pętlę Qt.
+        # Przetwarzamy je przed ponownym oddaniem sterowania użytkownikowi.
+        self.root.update_idletasks()
+        self.root.setEnabled(True)
+        self.root.activateWindow()
+        self.root.raise_()
         
     def _version_tuple(self, v: str) -> tuple[int, ...]:
         """Funkcja pomocnicza do porównywania wersji."""
@@ -739,4 +774,6 @@ class MainWindow:
         """Wyświetla główne okno O Programie z gotowym przyciskiem."""
         if not self.update_notified:
             self.update_notified = True  # Blokujemy kolejne wyskakiwanie
-            AboutPopup(self.root, discovered_version=new_version)
+            window = AboutPopup(self.root, discovered_version=new_version)
+            self.about_window = window
+            window.destroyed.connect(lambda _obj=None: setattr(self, "about_window", None))
