@@ -129,6 +129,17 @@ class FoilExporter:
             '0023': ['0070'],            # Górna
             '0020': ['0030', '0020']     # Obustronnie (Kombajn)
         }
+
+        # Pozycje folii ochronnej odpowiadają tym samym stronom co pozycje
+        # folii dekoracyjnej. Nie wolno pobierać wszystkich pozycji ochronnych
+        # dla każdej operacji, ponieważ ta sama folia z 0050 i 0060 zostałaby
+        # wtedy naliczona dwukrotnie.
+        op_to_protective_posnr = {
+            '0021': ['0050'],            # Zewnętrzna
+            '0022': ['0060'],            # Wewnętrzna
+            '0023': ['0090'],            # Górna
+            '0020': ['0050', '0060']     # Obustronnie
+        }
         
         posnr_desc = {
             '0030': 'Zewn.',
@@ -214,7 +225,13 @@ class FoilExporter:
                                 'side_desc': side_desc
                             })
 
-            prot_req = requirements[requirements['POSNR'].isin(['0050', '0060', '0090'])]
+            protective_posnrs = op_to_protective_posnr.get(
+                op_side, ['0050', '0060', '0090']
+            )
+            prot_req = requirements[
+                requirements['POSNR'].isin(protective_posnrs)
+            ].drop_duplicates(subset=['IDNRK'])
+
             for _, bom_row in prot_req.iterrows():
                 idnrk = str(bom_row['IDNRK'])
                 
